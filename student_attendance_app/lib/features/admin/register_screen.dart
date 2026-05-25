@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
@@ -9,17 +10,17 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:student_attendance_app/main.dart';
 import 'package:student_attendance_app/services/ml_service.dart';
-import 'package:student_attendance_app/database/db_helper.dart';
-import 'package:student_attendance_app/utils/theme.dart';
+import 'package:student_attendance_app/core/providers/db_provider.dart';
+import 'package:student_attendance_app/core/theme/app_theme.dart';
 import 'package:face_anti_spoofing_detector/face_anti_spoofing_detector.dart';
 
-class RegisterScreen extends StatefulWidget {
+class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
   @override
-  State<RegisterScreen> createState() => _RegisterScreenState();
+  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _RegisterScreenState extends State<RegisterScreen> {
+class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   CameraController? _controller;
   final TextEditingController _nameCtrl = TextEditingController();
   final TextEditingController _regCtrl = TextEditingController();
@@ -194,7 +195,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _finalizeRegistration() async {
     try {
-      final existing = await DatabaseHelper().getStudentByRegisterNo(_regCtrl.text);
+      final db = ref.read(databaseProvider);
+      final existing = await db.getStudentByRegisterNo(_regCtrl.text);
       if (existing != null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee with this Register Number already exists!"), backgroundColor: Colors.redAccent));
@@ -212,7 +214,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'embedding': jsonEncode(_collectedEmbeddings)
       };
       
-      await DatabaseHelper().insertStudent(student);
+      await db.insertStudent(student);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee Registered Successfully!"), backgroundColor: AppTheme.accentEmerald));

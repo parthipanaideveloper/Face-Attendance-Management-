@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:student_attendance_app/screens/scanner_screen.dart';
-import 'package:student_attendance_app/screens/dashboard_screen.dart';
-import 'package:student_attendance_app/screens/register_screen.dart';
-import 'package:student_attendance_app/screens/admin_settings_screen.dart';
-import 'package:student_attendance_app/utils/theme.dart';
+import 'package:student_attendance_app/features/attendance/scanner_screen.dart';
+import 'package:student_attendance_app/features/admin/dashboard_screen.dart';
+import 'package:student_attendance_app/features/admin/register_screen.dart';
+import 'package:student_attendance_app/features/admin/admin_settings_screen.dart';
+import 'package:student_attendance_app/core/theme/app_theme.dart';
 import 'package:local_auth/local_auth.dart';
 
 class HomeScreen extends StatefulWidget {

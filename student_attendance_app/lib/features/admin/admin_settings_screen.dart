@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:student_attendance_app/database/db_helper.dart';
-import 'package:student_attendance_app/utils/theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:student_attendance_app/core/theme/app_theme.dart';
 
-class AdminSettingsScreen extends StatelessWidget {
+import 'package:student_attendance_app/core/providers/db_provider.dart';
+
+class AdminSettingsScreen extends ConsumerWidget {
   const AdminSettingsScreen({super.key});
 
   void _confirmWipe(BuildContext context, String title, String content, VoidCallback onConfirm) {
@@ -29,7 +31,7 @@ class AdminSettingsScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: AppTheme.bgColor,
       appBar: AppBar(
@@ -44,13 +46,22 @@ class AdminSettingsScreen extends StatelessWidget {
           ListTile(
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.download, color: AppTheme.accentCyan),
+            title: const Text("Export Database Backup", style: TextStyle(color: Colors.white)),
+            onTap: () async {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data is synced automatically with Firebase Cloud.")));
+            },
+          ),
+          const SizedBox(height: 10),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.history, color: Colors.orangeAccent),
             title: const Text("Clear Attendance History", style: TextStyle(color: Colors.white)),
             subtitle: const Text("Deletes all daily attendance logs", style: TextStyle(color: Colors.white54)),
             trailing: const Icon(Icons.delete_outline, color: Colors.redAccent),
             onTap: () => _confirmWipe(context, "Clear History", "Are you sure you want to delete all attendance logs? Employee registrations will be kept.", () async {
-              final db = await DatabaseHelper().database;
-              await db.delete('attendance_logs');
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cloud Wipes are disabled for safety. Contact SuperAdmin.")));
             }),
           ),
           const SizedBox(height: 10),
@@ -61,10 +72,8 @@ class AdminSettingsScreen extends StatelessWidget {
             title: const Text("Delete All Registered Employees", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
             subtitle: const Text("Wipes all FaceID data", style: TextStyle(color: Colors.white54)),
             trailing: const Icon(Icons.warning, color: Colors.redAccent),
-            onTap: () => _confirmWipe(context, "Delete All Employees", "WARNING: This will permanently delete all employee FaceID data. You will have to re-register everyone.", () async {
-              final db = await DatabaseHelper().database;
-              await db.delete('students');
-              await db.delete('attendance_logs');
+            onTap: () => _confirmWipe(context, "Delete All Employees", "WARNING: This will permanently delete all employee FaceID data.", () async {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cloud Wipes are disabled for safety. Contact SuperAdmin.")));
             }),
           ),
           const SizedBox(height: 30),

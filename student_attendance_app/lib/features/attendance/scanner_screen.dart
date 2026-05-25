@@ -7,19 +7,21 @@ import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:student_attendance_app/main.dart';
 import 'package:student_attendance_app/services/ml_service.dart';
 import 'package:student_attendance_app/database/db_helper.dart';
-import 'package:student_attendance_app/utils/theme.dart';
+import 'package:student_attendance_app/core/theme/app_theme.dart';
+import 'package:student_attendance_app/core/providers/db_provider.dart';
 import 'package:face_anti_spoofing_detector/face_anti_spoofing_detector.dart';
 
-class ScannerScreen extends StatefulWidget {
+class ScannerScreen extends ConsumerStatefulWidget {
   const ScannerScreen({super.key});
   @override
-  State<ScannerScreen> createState() => _ScannerScreenState();
+  ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends State<ScannerScreen> {
+class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   CameraController? _controller;
   final FlutterTts _flutterTts = FlutterTts();
   bool _isProcessing = false;
@@ -40,7 +42,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Future<void> _loadLiveStats() async {
-    final stats = await DatabaseHelper().getDashboardAnalytics();
+    final db = ref.read(databaseProvider);
+    final stats = await db.getDashboardAnalytics();
     if (mounted) {
       setState(() {
         _totalStudents = stats['total_students'];
@@ -158,7 +161,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
       final embedding = await MLService().getEmbeddingFromStream(bytes, width, height, face, cameras[1].sensorOrientation);
       if (embedding == null) throw Exception("Failed to extract features.");
       
-      final students = await DatabaseHelper().getAllStudents();
+      final db = ref.read(databaseProvider);
+      final students = await db.getAllStudents();
       String? recognizedRegNo;
       String? recognizedName;
       double minDistance = 999.0;
@@ -195,7 +199,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
       if (recognizedRegNo != null) {
         final student = students.firstWhere((s) => s['register_no'] == recognizedRegNo);
-        await DatabaseHelper().logAttendance(recognizedRegNo, recognizedName!, student['dept']);
+        await db.logAttendance(recognizedRegNo, recognizedName!, student['dept']);
         _showSuccessQuick(recognizedName);
       } else {
         setState(() { _statusText = "Face not recognized."; });
