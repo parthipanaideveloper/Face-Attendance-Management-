@@ -1,5 +1,4 @@
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 class DatabaseHelper {
@@ -7,79 +6,39 @@ class DatabaseHelper {
   factory DatabaseHelper() => _instance;
   DatabaseHelper._internal();
 
-  static Database? _database;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDb();
-    return _database!;
-  }
-
-  Future<Database> _initDb() async {
-    String path = join(await getDatabasesPath(), 'attendance_system.db');
-    return await openDatabase(
-      path,
-      version: 1,
-      onCreate: _onCreate,
-    );
-  }
-
-  Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE students (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        register_no TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        dept TEXT NOT NULL,
-        gender TEXT NOT NULL,
-        image_path TEXT NOT NULL,
-        embedding TEXT NOT NULL
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        register_no TEXT NOT NULL,
-        date TEXT NOT NULL,
-        in_time TEXT,
-        out_time TEXT,
-        status TEXT,
-        FOREIGN KEY(register_no) REFERENCES students(register_no)
-      )
-    ''');
-  }
-
-  Future<int> insertStudent(Map<String, dynamic> student) async {
-    Database db = await database;
-    return await db.insert('students', student, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> insertStudent(Map<String, dynamic> student) async {
+    String registerNo = student['register_no'];
+    await _firestore.collection('students').doc(registerNo).set(student, SetOptions(merge: true));
   }
 
   Future<List<Map<String, dynamic>>> getAllStudents() async {
-    Database db = await database;
-    return await db.query('students');
+    QuerySnapshot snapshot = await _firestore.collection('students').get();
+    return snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
   }
 
   Future<Map<String, dynamic>?> getStudentByRegisterNo(String registerNo) async {
-    Database db = await database;
-    List<Map<String, dynamic>> res = await db.query('students', where: 'register_no = ?', whereArgs: [registerNo]);
-    if (res.isNotEmpty) return res.first;
+    DocumentSnapshot doc = await _firestore.collection('students').doc(registerNo).get();
+    if (doc.exists) {
+      return doc.data() as Map<String, dynamic>;
+    }
     return null;
   }
 
   Future<Map<String, dynamic>> logAttendance(String registerNo, String name, String dept) async {
-    Database db = await database;
     String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     String nowTime = DateFormat('hh:mm a').format(DateTime.now());
 
-    List<Map<String, dynamic>> existing = await db.query(
-      'attendance',
-      where: 'register_no = ? AND date = ?',
-      whereArgs: [registerNo, today],
-    );
+    QuerySnapshot existing = await _firestore
+        .collection('attendance')
+        .where('register_no', isEqualTo: registerNo)
+        .where('date', isEqualTo: today)
+        .limit(1)
+        .get();
 
-    if (existing.isEmpty) {
-      await db.insert('attendance', {
+    if (existing.docs.isEmpty) {
+      await _firestore.collection('attendance').add({
         'register_no': registerNo,
         'date': today,
         'in_time': nowTime,
@@ -95,13 +54,13 @@ class DatabaseHelper {
         'status': 'Present'
       };
     } else {
-      await db.update(
-        'attendance',
-        {'out_time': nowTime},
-        where: 'register_no = ? AND date = ?',
-        whereArgs: [registerNo, today],
-      );
-      var record = existing.first;
+      String docId = existing.docs.first.id;
+      var record = existing.docs.first.data() as Map<String, dynamic>;
+      
+      await _firestore.collection('attendance').doc(docId).update({
+        'out_time': nowTime,
+      });
+
       return {
         'name': name,
         'register_no': registerNo,
@@ -114,50 +73,73 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getAttendanceByDate(String date) async {
-    Database db = await database;
-    return await db.rawQuery('''
-      SELECT a.*, s.name, s.dept, s.gender 
-      FROM attendance a 
-      JOIN students s ON a.register_no = s.register_no 
-      WHERE a.date = ?
-    ''', [date]);
+    QuerySnapshot attendanceSnapshot = await _firestore
+        .collection('attendance')
+        .where('date', isEqualTo: date)
+        .get();
+
+    List<Map<String, dynamic>> result = [];
+    for (var doc in attendanceSnapshot.docs) {
+      var attData = doc.data() as Map<String, dynamic>;
+      var studentData = await getStudentByRegisterNo(attData['register_no']);
+      if (studentData != null) {
+        attData['name'] = studentData['name'];
+        attData['dept'] = studentData['dept'];
+        attData['gender'] = studentData['gender'];
+        result.add(attData);
+      }
+    }
+    return result;
   }
 
   Future<List<Map<String, dynamic>>> getAttendanceByMonth(String monthPrefix) async {
-    Database db = await database;
-    return await db.rawQuery('''
-      SELECT a.*, s.name, s.dept, s.gender 
-      FROM attendance a 
-      JOIN students s ON a.register_no = s.register_no 
-      WHERE a.date LIKE ?
-    ''', ['$monthPrefix%']);
+    // For Firestore, a simple prefix search requires startAt and endAt or just fetching and filtering
+    // Fetching all for the month
+    QuerySnapshot attendanceSnapshot = await _firestore
+        .collection('attendance')
+        .where('date', isGreaterThanOrEqualTo: monthPrefix)
+        .where('date', isLessThan: monthPrefix + 'z')
+        .get();
+
+    List<Map<String, dynamic>> result = [];
+    for (var doc in attendanceSnapshot.docs) {
+      var attData = doc.data() as Map<String, dynamic>;
+      var studentData = await getStudentByRegisterNo(attData['register_no']);
+      if (studentData != null) {
+        attData['name'] = studentData['name'];
+        attData['dept'] = studentData['dept'];
+        attData['gender'] = studentData['gender'];
+        result.add(attData);
+      }
+    }
+    return result;
   }
 
   Future<Map<String, dynamic>> getDashboardAnalytics() async {
-    Database db = await database;
     String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-    var totalRes = await db.rawQuery('SELECT COUNT(*) as count FROM students');
-    int totalStudents = Sqflite.firstIntValue(totalRes) ?? 0;
+    AggregateQuerySnapshot studentsQuery = await _firestore.collection('students').count().get();
+    int totalStudents = studentsQuery.count ?? 0;
 
-    var presentRes = await db.rawQuery('SELECT COUNT(*) as count FROM attendance WHERE date = ?', [today]);
-    int presentToday = Sqflite.firstIntValue(presentRes) ?? 0;
-
+    QuerySnapshot attendanceSnapshot = await _firestore
+        .collection('attendance')
+        .where('date', isEqualTo: today)
+        .get();
+        
+    int presentToday = attendanceSnapshot.docs.length;
     int absentToday = totalStudents - presentToday;
     double rate = totalStudents > 0 ? (presentToday / totalStudents) * 100 : 0.0;
 
-    var genderRes = await db.rawQuery('''
-      SELECT s.gender, COUNT(a.id) as count 
-      FROM attendance a 
-      JOIN students s ON a.register_no = s.register_no 
-      WHERE a.date = ? 
-      GROUP BY s.gender
-    ''', [today]);
-
     Map<String, int> presentGender = {'Male': 0, 'Female': 0};
-    for (var row in genderRes) {
-      if (row['gender'] == 'Male') presentGender['Male'] = row['count'] as int;
-      if (row['gender'] == 'Female') presentGender['Female'] = row['count'] as int;
+    
+    for (var doc in attendanceSnapshot.docs) {
+      var data = doc.data() as Map<String, dynamic>;
+      var student = await getStudentByRegisterNo(data['register_no']);
+      if (student != null) {
+        String gender = student['gender'] ?? '';
+        if (gender == 'Male') presentGender['Male'] = presentGender['Male']! + 1;
+        if (gender == 'Female') presentGender['Female'] = presentGender['Female']! + 1;
+      }
     }
 
     return {
@@ -170,10 +152,8 @@ class DatabaseHelper {
   }
 
   Future<List<int>> getWeeklyAttendanceCounts() async {
-    Database db = await database;
     List<int> weeklyCounts = List.filled(6, 0); // Mon to Sat
     DateTime now = DateTime.now();
-    // Find most recent Monday
     int daysToSubtract = now.weekday - DateTime.monday;
     if (daysToSubtract < 0) daysToSubtract += 7;
     DateTime monday = now.subtract(Duration(days: daysToSubtract));
@@ -181,8 +161,14 @@ class DatabaseHelper {
     for (int i = 0; i < 6; i++) {
       DateTime day = monday.add(Duration(days: i));
       String dateStr = DateFormat('yyyy-MM-dd').format(day);
-      var res = await db.rawQuery('SELECT COUNT(*) as count FROM attendance WHERE date = ?', [dateStr]);
-      weeklyCounts[i] = Sqflite.firstIntValue(res) ?? 0;
+      
+      AggregateQuerySnapshot countSnapshot = await _firestore
+          .collection('attendance')
+          .where('date', isEqualTo: dateStr)
+          .count()
+          .get();
+          
+      weeklyCounts[i] = countSnapshot.count ?? 0;
     }
     return weeklyCounts;
   }

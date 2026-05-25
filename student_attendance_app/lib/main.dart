@@ -3,6 +3,8 @@ import 'package:camera/camera.dart';
 import 'package:student_attendance_app/screens/home_screen.dart';
 import 'package:student_attendance_app/utils/theme.dart';
 import 'package:student_attendance_app/services/ml_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart'; // Make sure you have run 'flutterfire configure'
 
 List<CameraDescription> cameras = [];
 
@@ -10,6 +12,9 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     cameras = await availableCameras();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
     await MLService().initialize();
   } catch (e) {
     print('Error during initialization: $e');

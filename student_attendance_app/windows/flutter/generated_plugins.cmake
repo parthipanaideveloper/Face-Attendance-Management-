@@ -4,6 +4,8 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   camera_windows
+  cloud_firestore
+  firebase_core
   flutter_tts
   local_auth_windows
   share_plus
