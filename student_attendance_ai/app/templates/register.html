@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Student</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 0; }
+        .navbar { background-color: #2c3e50; padding: 15px; color: white; display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+        .navbar a { color: white; text-decoration: none; font-weight: bold; font-size: 18px; padding: 10px 15px; border-radius: 5px; transition: 0.3s; }
+        .navbar a:hover { background-color: #34495e; }
+        .container { max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; text-align: center; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input[type="text"], input[type="file"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-family: inherit; }
+        .btn-capture { background-color: #f39c12; color: white; padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; font-size: 15px;}
+        button[type="submit"] { width: 100%; background-color: #27ae60; color: white; padding: 12px; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; margin-top: 10px;}
+        button:hover { opacity: 0.9; }
+        #camera-container { display: none; text-align: center; margin-bottom: 20px;}
+        video { 
+            width: 300px; 
+            height: 300px; 
+            object-fit: cover; 
+            border-radius: 50%; 
+            border: 10px solid #2c3e50; 
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.2); 
+            transform: scaleX(-1); /* Mirror effect */
+        }
+        #snapshot-preview { display: none; width: 100%; max-width: 250px; border: 4px solid #27ae60; border-radius: 5px; margin: 10px auto; box-shadow: 0px 4px 10px rgba(0,0,0,0.2); }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <a href="/">Home</a>
+        <a href="/attendance">Live Scanner</a>
+        <a href="/register">Register</a>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/reports">Reports</a>
+    </div>
+
+    <div class="container">
+        <h2>Register New Student</h2>
+        <form action="/register" method="POST" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="name">Full Name</label>
+                <input type="text" id="name" name="name" required placeholder="John Doe">
+            </div>
+            
+            <div class="form-group">
+                <label for="register_no">Register Number (ID)</label>
+                <input type="text" id="register_no" name="register_no" required placeholder="22CS001">
+            </div>
+
+            <div class="form-group">
+                <label for="dept">Department</label>
+                <input type="text" id="dept" name="dept" required placeholder="e.g. Computer Science">
+            </div>
+
+            <div class="form-group">
+                <label for="gender">Gender</label>
+                <select id="gender" name="gender" required style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-family: inherit;">
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="background: #ecf0f1; padding: 15px; border-radius: 5px;">
+                <label>📸 Option 1: Live Webcam Capture</label>
+                <button type="button" class="btn-capture" id="start-camera">Start Web Camera</button>
+                <div id="camera-container">
+                    <video id="video" autoplay playsinline></video>
+                    <button type="button" class="btn-capture" id="snap-btn" style="background-color: #e74c3c; margin-top: 10px; padding: 15px; font-size: 16px;">🟢 Take Snapshot</button>
+                    <canvas id="canvas" style="display:none;"></canvas>
+                </div>
+                <img id="snapshot-preview" alt="Snapshot Preview">
+                <input type="hidden" name="webcam_image" id="webcam_image">
+            </div>
+
+            <p style="text-align: center; font-weight: bold; color: #7f8c8d;">OR</p>
+
+            <div class="form-group" style="background: #ecf0f1; padding: 15px; border-radius: 5px;">
+                <label for="image">📂 Option 2: Upload File</label>
+                <input type="file" id="image" name="image" accept="image/*">
+            </div>
+
+            <button type="submit">Save Student & Train AI</button>
+        </form>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const snapBtn = document.getElementById('snap-btn');
+        const startCameraBtn = document.getElementById('start-camera');
+        const cameraContainer = document.getElementById('camera-container');
+        const webcamInput = document.getElementById('webcam_image');
+        const snapshotPreview = document.getElementById('snapshot-preview');
+        const fileInput = document.getElementById('image');
+
+        // Start Camera
+        startCameraBtn.addEventListener('click', async () => {
+            cameraContainer.style.display = 'block';
+            startCameraBtn.style.display = 'none';
+            snapshotPreview.style.display = 'none';
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+            } catch (err) {
+                alert("Error accessing webcam. Please ensure permissions are granted.");
+            }
+        });
+
+        // Take Snapshot (Multi-Capture)
+        snapBtn.addEventListener('click', () => {
+            const numCaptures = 5;
+            let captures = [];
+            let captureCount = 0;
+            
+            startCameraBtn.disabled = true;
+            snapBtn.disabled = true;
+            snapBtn.innerText = `Capturing 1/${numCaptures}...`;
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            const captureInterval = setInterval(() => {
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                captures.push(canvas.toDataURL('image/jpeg'));
+                captureCount++;
+                
+                if (captureCount < numCaptures) {
+                    snapBtn.innerText = `Capturing ${captureCount + 1}/${numCaptures}...`;
+                } else {
+                    clearInterval(captureInterval);
+                    
+                    // Store as JSON Array for backend processing
+                    webcamInput.value = JSON.stringify(captures);
+                    
+                    // Show last captured preview
+                    snapshotPreview.src = captures[captures.length-1];
+                    snapshotPreview.style.display = 'block';
+                    
+                    // Clear any file upload to prioritize webcam
+                    fileInput.value = "";
+                    
+                    // Stop Camera
+                    const stream = video.srcObject;
+                    const tracks = stream.getTracks();
+                    tracks.forEach(track => track.stop());
+                    cameraContainer.style.display = 'none';
+                    
+                    startCameraBtn.disabled = false;
+                    snapBtn.disabled = false;
+                    startCameraBtn.style.display = 'block';
+                    startCameraBtn.innerText = "Retake Photos";
+                    snapBtn.innerText = "🟢 Take Snapshot";
+                }
+            }, 300); // 300ms delay between shots
+        });
+        
+        // If user manually uploads a file, clear webcam data
+        fileInput.addEventListener('change', () => {
+             webcamInput.value = "";
+             snapshotPreview.style.display = 'none';
+             startCameraBtn.innerText = "Start Web Camera";
+        });
+    </script>
+</body>
+</html>

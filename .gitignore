@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+attendance_system.db
+datasets/
+student_attendance_app/build/
+student_attendance_app/.dart_tool/
