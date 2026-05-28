@@ -21,7 +21,7 @@ class ScannerScreen extends ConsumerStatefulWidget {
   ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends ConsumerState<ScannerScreen> {
+class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindingObserver {
   CameraController? _controller;
   final FlutterTts _flutterTts = FlutterTts();
   bool _isProcessing = false;
@@ -37,8 +37,23 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadLiveStats();
     _initializeCamera();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final CameraController? cameraController = _controller;
+    if (cameraController == null || !cameraController.value.isInitialized) {
+      return;
+    }
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      cameraController.dispose();
+      _controller = null;
+    } else if (state == AppLifecycleState.resumed) {
+      _initializeCamera();
+    }
   }
 
   Future<void> _loadLiveStats() async {
@@ -113,7 +128,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
             _statusText = "Identifying..."; 
             _faceRect = face.boundingBox;
             // In portrait, camera sensor is usually rotated 90 degrees, so we swap width and height for display mapping
-            _imageSize = Size(image.height.toDouble(), image.width.toDouble());
+            final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+            _imageSize = isPortrait 
+                ? Size(image.height.toDouble(), image.width.toDouble())
+                : Size(image.width.toDouble(), image.height.toDouble());
           });
 
           // Run attendance processing directly. Spoof check can run asynchronously or be bypassed if speed is top priority
@@ -138,7 +156,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
 
   Future<void> _processAttendance(Uint8List bytes, int width, int height, Face face) async {
     try {
-      // ANTI-SPOOFING LIVENESS CHECK
+      // ANTI-SPOOFING LIVENESS CHECK - TEMPORARILY DISABLED FOR PHOTO TESTING
+      /*
       double? livenessScore = await FaceAntiSpoofingDetector.detect(
         yuvBytes: bytes,
         previewWidth: width,
@@ -157,6 +176,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
         }
         return;
       }
+      */
 
       final embedding = await MLService().getEmbeddingFromStream(bytes, width, height, face, cameras[1].sensorOrientation);
       if (embedding == null) throw Exception("Failed to extract features.");
@@ -266,6 +286,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     FaceAntiSpoofingDetector.destroy();
     super.dispose();
@@ -273,6 +294,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+
     Color frameColor = AppTheme.accentCyan;
     if (_scanSuccess) {
       frameColor = Colors.blueAccent;
@@ -290,8 +313,12 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
               child: FittedBox(
                 fit: BoxFit.cover,
                 child: SizedBox(
-                  width: _controller!.value.previewSize?.height ?? 1,
-                  height: _controller!.value.previewSize?.width ?? 1,
+                  width: isPortrait 
+                      ? (_controller!.value.previewSize?.height ?? 1)
+                      : (_controller!.value.previewSize?.width ?? 1),
+                  height: isPortrait 
+                      ? (_controller!.value.previewSize?.width ?? 1)
+                      : (_controller!.value.previewSize?.height ?? 1),
                   child: CameraPreview(_controller!),
                 ),
               ),

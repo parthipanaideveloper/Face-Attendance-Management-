@@ -1,18 +1,20 @@
-import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter/foundation.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:student_attendance_app/main.dart';
+import 'dart:convert';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:student_attendance_app/services/ml_service.dart';
+import 'package:student_attendance_app/main.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:student_attendance_app/core/providers/db_provider.dart';
 import 'package:student_attendance_app/core/theme/app_theme.dart';
 import 'package:face_anti_spoofing_detector/face_anti_spoofing_detector.dart';
+import 'package:student_attendance_app/features/attendance/scanner_screen.dart';
+import 'package:student_attendance_app/features/attendance/home_screen.dart';
+import 'package:flutter/foundation.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -20,7 +22,7 @@ class RegisterScreen extends ConsumerStatefulWidget {
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _RegisterScreenState extends ConsumerState<RegisterScreen> {
+class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBindingObserver {
   CameraController? _controller;
   final TextEditingController _nameCtrl = TextEditingController();
   final TextEditingController _regCtrl = TextEditingController();
@@ -48,7 +50,22 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeCamera();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final CameraController? cameraController = _controller;
+    if (cameraController == null || !cameraController.value.isInitialized) {
+      return;
+    }
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      cameraController.dispose();
+      _controller = null;
+    } else if (state == AppLifecycleState.resumed) {
+      _initializeCamera();
+    }
   }
 
   Future<void> _initializeCamera() async {
@@ -218,15 +235,70 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee Registered Successfully!"), backgroundColor: AppTheme.accentEmerald));
-        setState(() {
-          _nameCtrl.clear();
-          _regCtrl.clear();
-          _deptCtrl.clear();
-          _poseStep = 0;
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            final homeState = context.findAncestorStateOfType<HomeScreenState>();
+            if (homeState != null) {
+               homeState.switchToTab(0);
+            } else {
+               Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const ScannerScreen()));
+            }
+          }
         });
       }
     } catch (e) {
       _showError("Database Error: $e");
+      setState(() => _poseStep = 0);
+    }
+  }
+
+  Future<void> _uploadPhotos() async {
+    if (_nameCtrl.text.isEmpty || _regCtrl.text.isEmpty || _deptCtrl.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields first!")));
+      return;
+    }
+
+    final ImagePicker picker = ImagePicker();
+    final List<XFile> images = await picker.pickMultiImage();
+    
+    if (images.isEmpty) return;
+    
+    setState(() {
+      _poseStep = -1; // Loading state
+      _dialogInstruction.value = "Processing ${images.length} photos...";
+    });
+
+    int processedCount = 0;
+    _collectedEmbeddings.clear();
+
+    try {
+      for (var imgFile in images) {
+        final File file = File(imgFile.path);
+        final face = await MLService().detectFace(file);
+        if (face != null) {
+          final embedding = await MLService().getEmbedding(file, face);
+          if (embedding != null) {
+             _collectedEmbeddings.add(embedding);
+             processedCount++;
+             if (_profileImagePath == null) {
+                final directory = await getApplicationDocumentsDirectory();
+                _profileImagePath = "${directory.path}/${_regCtrl.text}.jpg";
+                await file.copy(_profileImagePath!);
+             }
+          }
+        }
+      }
+
+      if (_collectedEmbeddings.isEmpty) {
+        throw Exception("No valid faces found in any of the uploaded photos.");
+      }
+
+      _dialogInstruction.value = "Successfully extracted $processedCount vectors. Finalizing...";
+      await Future.delayed(const Duration(seconds: 1));
+      await _finalizeRegistration();
+
+    } catch (e) {
+      _showError("Photo Processing Error: $e");
       setState(() => _poseStep = 0);
     }
   }
@@ -245,6 +317,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     _nameCtrl.dispose();
     _regCtrl.dispose();
@@ -255,6 +328,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    
     if (_poseStep != 0) {
       return Scaffold(
         backgroundColor: AppTheme.bgColor,
@@ -276,16 +351,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     boxShadow: [BoxShadow(color: AppTheme.accentCyan.withOpacity(0.3), blurRadius: 20, spreadRadius: 5)],
                   ),
                   child: ClipOval(
-                    child: _controller != null && _controller!.value.isInitialized
+                        child: _controller != null && _controller!.value.isInitialized && _poseStep > 0
                       ? FittedBox(
                           fit: BoxFit.cover,
                           child: SizedBox(
-                            width: _controller!.value.previewSize?.height ?? 350,
-                            height: _controller!.value.previewSize?.width ?? 350,
+                            width: isPortrait 
+                                ? (_controller!.value.previewSize?.height ?? 350)
+                                : (_controller!.value.previewSize?.width ?? 350),
+                            height: isPortrait 
+                                ? (_controller!.value.previewSize?.width ?? 350)
+                                : (_controller!.value.previewSize?.height ?? 350),
                             child: CameraPreview(_controller!),
                           ),
                         )
-                      : const Center(child: CircularProgressIndicator(color: AppTheme.accentCyan)),
+                      : const Center(child: Icon(Icons.cloud_upload, size: 100, color: AppTheme.accentCyan)),
                   ),
                 ),
                 const SizedBox(height: 40),
@@ -343,6 +422,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: const Text("Start 3D Face Scan", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.bgColor)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 55,
+              child: OutlinedButton.icon(
+                onPressed: _poseStep > 0 ? null : _uploadPhotos,
+                icon: const Icon(Icons.photo_library, color: Colors.orangeAccent),
+                label: const Text("Upload Photos (Gallery)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.orangeAccent, width: 2),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
               ),
             ),
           ],

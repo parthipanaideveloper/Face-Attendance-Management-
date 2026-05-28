@@ -9,10 +9,10 @@ import 'package:local_auth/local_auth.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final LocalAuthentication _auth = LocalAuthentication();
 
@@ -26,6 +26,14 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _currentIndex = index;
     });
+  }
+
+  void switchToTab(int index) {
+    if (mounted) {
+      setState(() {
+        _currentIndex = index;
+      });
+    }
   }
 
   @override

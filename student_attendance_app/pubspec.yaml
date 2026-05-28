@@ -51,6 +51,7 @@ dependencies:
   firebase_core: ^4.9.0
   cloud_firestore: ^6.4.1
   flutter_riverpod: ^2.6.1
+  image_picker: ^1.2.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

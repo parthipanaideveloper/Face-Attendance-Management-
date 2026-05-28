@@ -207,7 +207,31 @@ class DashboardScreen extends ConsumerWidget {
               ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1, end: 0);
             },
             loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.accentCyan)),
-            error: (err, stack) => Text("Error loading stats: $err", style: const TextStyle(color: Colors.redAccent)),
+            error: (err, stack) => Column(
+              children: [
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.wifi_off, color: Colors.redAccent),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        "Network Error: Unable to fetch live stats. Showing offline data.", 
+                        style: TextStyle(color: Colors.redAccent),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(child: _buildStatCard("Total Staff", "--", Icons.people, AppTheme.accentCyan)),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildStatCard("Present Today", "--", Icons.check_circle, AppTheme.accentEmerald)),
+                  ],
+                ),
+              ],
+            ),
           ),
           
           const SizedBox(height: 30),
