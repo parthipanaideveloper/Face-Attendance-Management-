@@ -48,13 +48,13 @@ class HomeScreenState extends State<HomeScreen> {
           padding: EdgeInsets.zero,
           children: [
             const DrawerHeader(
-              decoration: BoxDecoration(color: AppTheme.bgColor),
+              decoration: BoxDecoration(color: Colors.white),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(radius: 30, backgroundColor: AppTheme.accentCyan, child: Icon(Icons.admin_panel_settings, color: Colors.white, size: 30)),
+                  Image(image: AssetImage('assets/St-Marys-school-logo.webp'), height: 60),
                   SizedBox(height: 10),
-                  Text("Admin Panel", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text("St. Marrys School", style: TextStyle(color: Colors.black87, fontSize: 20, fontWeight: FontWeight.bold)),
                   Text("Smart Attendance System", style: TextStyle(color: Colors.grey, fontSize: 14)),
                 ],
               ),

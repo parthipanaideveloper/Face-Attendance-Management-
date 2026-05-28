@@ -370,14 +370,25 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                   ),
                   child: Column(
                     children: [
-                      const Text(
-                        "Diyantech Solutions", 
-                        style: TextStyle(
-                          color: AppTheme.accentCyan, 
-                          fontSize: 22, 
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 1.2,
-                        )
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Image.asset('assets/St-Marys-school-logo.webp', height: 65, width: 65, fit: BoxFit.contain),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              "St.Marrys Schoool Attendance System", 
+                              style: TextStyle(
+                                color: AppTheme.accentCyan, 
+                                fontSize: 18, 
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.0,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 15),
                       Row(

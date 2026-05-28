@@ -1,27 +1,27 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:student_attendance_app/features/admin/providers/dashboard_provider.dart';
 import 'package:student_attendance_app/features/admin/admin_settings_screen.dart';
 import 'package:student_attendance_app/features/admin/reports_screen.dart';
+import 'package:student_attendance_app/features/admin/employee_management_screen.dart';
 import 'package:student_attendance_app/core/theme/app_theme.dart';
 import 'package:student_attendance_app/core/providers/db_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:excel/excel.dart' as xl;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
-  Future<void> _exportAndShareCSV(BuildContext context, WidgetRef ref) async {
-    final now = DateTime.now();
-    final monthStr = "${now.year}-${now.month.toString().padLeft(2, '0')}";
-    try {
-      final db = ref.read(databaseProvider);
-      final records = await db.getAttendanceByMonth(monthStr);
+  Future<void> _exportCSV(BuildContext context, WidgetRef ref, String monthStr, List<Map<String, dynamic>> records) async {
       String csv = "Date,Name,RegNo,Dept,InTime,OutTime,Status,Hours,Salary\n";
       for (var r in records) {
         double hours = 0;
@@ -33,18 +33,142 @@ class DashboardScreen extends ConsumerWidget {
              if (hours < 0) hours += 24;
           } catch(e) {}
         }
-        final salary = hours * 12.0; // Hourly wage
+        final salary = hours * 12.0;
         csv += "${r['date']},${r['name']},${r['register_no']},${r['dept']},${r['in_time']},${r['out_time'] ?? '--:--:--'},${r['status']},${hours.toStringAsFixed(2)},\$${salary.toStringAsFixed(2)}\n";
+      }
+      final directory = await getTemporaryDirectory();
+      final file = File("${directory.path}/report_$monthStr.csv");
+      await file.writeAsString(csv);
+      Share.shareXFiles([XFile(file.path, mimeType: 'text/csv')], text: 'Attendance Report CSV');
+  }
+
+  Future<void> _exportExcel(BuildContext context, WidgetRef ref, String monthStr, List<Map<String, dynamic>> records) async {
+      var excel = xl.Excel.createExcel();
+      xl.Sheet sheetObject = excel['Attendance Report'];
+      excel.setDefaultSheet('Attendance Report');
+      
+      sheetObject.appendRow([
+        xl.TextCellValue('Date'), xl.TextCellValue('Name'), xl.TextCellValue('RegNo'), 
+        xl.TextCellValue('Dept'), xl.TextCellValue('InTime'), xl.TextCellValue('OutTime'), 
+        xl.TextCellValue('Status'), xl.TextCellValue('Hours'), xl.TextCellValue('Salary')
+      ]);
+
+      for (var r in records) {
+        double hours = 0;
+        if (r['in_time'] != null && r['out_time'] != null) {
+          try {
+             final inFormat = DateFormat("hh:mm a").parse(r['in_time']);
+             final outFormat = DateFormat("hh:mm a").parse(r['out_time']);
+             hours = outFormat.difference(inFormat).inMinutes / 60.0;
+             if (hours < 0) hours += 24;
+          } catch(e) {}
+        }
+        final salary = hours * 12.0;
+        sheetObject.appendRow([
+          xl.TextCellValue(r['date'].toString()), xl.TextCellValue(r['name'].toString()), 
+          xl.TextCellValue(r['register_no'].toString()), xl.TextCellValue(r['dept'].toString()), 
+          xl.TextCellValue(r['in_time'].toString()), xl.TextCellValue((r['out_time'] ?? '--:--:--').toString()), 
+          xl.TextCellValue(r['status'].toString()), xl.TextCellValue(hours.toStringAsFixed(2)), 
+          xl.TextCellValue('\$${salary.toStringAsFixed(2)}')
+        ]);
       }
       
       final directory = await getTemporaryDirectory();
-      final path = "${directory.path}/report_$monthStr.csv";
-      final file = File(path);
-      await file.writeAsString(csv);
-      Share.shareXFiles([XFile(file.path, mimeType: 'text/csv')], text: 'Attendance Report for $monthStr');
-    } catch (e) {
-       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Export Error: $e")));
-    }
+      final file = File("${directory.path}/report_$monthStr.xlsx");
+      await file.writeAsBytes(excel.encode()!);
+      Share.shareXFiles([XFile(file.path)], text: 'Attendance Report Excel');
+  }
+
+  Future<void> _exportPDF(BuildContext context, WidgetRef ref, String monthStr, List<Map<String, dynamic>> records) async {
+      final pdf = pw.Document();
+      
+      final ByteData logoBytes = await rootBundle.load('assets/St-Marys-school-logo.webp');
+      final Uint8List logoData = logoBytes.buffer.asUint8List();
+      final logoImage = pw.MemoryImage(logoData);
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return [
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Image(logoImage, width: 50, height: 50),
+                  pw.SizedBox(width: 15),
+                  pw.Text("St. Marrys School Attendance - $monthStr", style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold)),
+                ]
+              ),
+              pw.SizedBox(height: 20),
+              pw.TableHelper.fromTextArray(
+                context: context,
+                headers: ['Date', 'Name', 'RegNo', 'In', 'Out', 'Hrs', 'Salary'],
+                data: records.map((r) {
+                  double hours = 0;
+                  if (r['in_time'] != null && r['out_time'] != null) {
+                    try {
+                      final inFormat = DateFormat("hh:mm a").parse(r['in_time']);
+                      final outFormat = DateFormat("hh:mm a").parse(r['out_time']);
+                      hours = outFormat.difference(inFormat).inMinutes / 60.0;
+                      if (hours < 0) hours += 24;
+                    } catch(e) {}
+                  }
+                  final salary = hours * 12.0;
+                  return [r['date'], r['name'], r['register_no'], r['in_time'], r['out_time'] ?? '--:--:--', hours.toStringAsFixed(1), '\$${salary.toStringAsFixed(2)}'];
+                }).toList(),
+              ),
+            ];
+          },
+        ),
+      );
+
+      final directory = await getTemporaryDirectory();
+      final file = File("${directory.path}/report_$monthStr.pdf");
+      await file.writeAsBytes(await pdf.save());
+      Share.shareXFiles([XFile(file.path, mimeType: 'application/pdf')], text: 'Attendance Report PDF');
+  }
+
+  void _showExportDialog(BuildContext context, WidgetRef ref) async {
+    final now = DateTime.now();
+    final monthStr = "${now.year}-${now.month.toString().padLeft(2, '0')}";
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text("Export & Share", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        content: const Text("Choose the format for the attendance report:", style: TextStyle(color: Colors.black87)),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final db = ref.read(databaseProvider);
+              final records = await db.getAttendanceByMonth(monthStr);
+              _exportCSV(context, ref, monthStr, records);
+            },
+            child: const Text("CSV"),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final db = ref.read(databaseProvider);
+              final records = await db.getAttendanceByMonth(monthStr);
+              _exportExcel(context, ref, monthStr, records);
+            },
+            child: const Text("Excel (XLSX)"),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final db = ref.read(databaseProvider);
+              final records = await db.getAttendanceByMonth(monthStr);
+              _exportPDF(context, ref, monthStr, records);
+            },
+            child: const Text("PDF Document"),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openChartScreen(BuildContext context, List<int> weeklyData, Map<String, dynamic> analytics) {
@@ -95,7 +219,7 @@ class DashboardScreen extends ConsumerWidget {
                       sideTitles: SideTitles(
                         showTitles: true, 
                         reservedSize: 40, // Increased for tablets to prevent overlap
-                        interval: 1,
+                        interval: maxY > 10 ? (maxY / 5).ceilToDouble() : 1,
                         getTitlesWidget: (double value, TitleMeta meta) {
                            return Text(value.toInt().toString(), style: const TextStyle(color: Colors.white54, fontSize: 12));
                         }
@@ -104,7 +228,12 @@ class DashboardScreen extends ConsumerWidget {
                     topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                     rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   ),
-                  gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (val) => FlLine(color: Colors.white10, strokeWidth: 1)),
+                  gridData: FlGridData(
+                    show: true, 
+                    drawVerticalLine: false, 
+                    horizontalInterval: maxY > 10 ? (maxY / 5).ceilToDouble() : 1,
+                    getDrawingHorizontalLine: (val) => FlLine(color: Colors.white10, strokeWidth: 1)
+                  ),
                   borderData: FlBorderData(show: false),
                   barGroups: List.generate(6, (i) {
                     return BarChartGroupData(
@@ -134,10 +263,10 @@ class DashboardScreen extends ConsumerWidget {
       borderRadius: BorderRadius.circular(24),
       child: Container(
         decoration: BoxDecoration(
-          color: AppTheme.cardColor,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 8))],
+          border: Border.all(color: color.withOpacity(0.3), width: 2),
+          boxShadow: [BoxShadow(color: color.withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8))],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -151,7 +280,7 @@ class DashboardScreen extends ConsumerWidget {
               child: Icon(icon, size: 40, color: color),
             ),
             const SizedBox(height: 16),
-            Text(title, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(title, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -164,7 +293,7 @@ class DashboardScreen extends ConsumerWidget {
     final weeklyAsync = ref.watch(dashboardWeeklyProvider);
 
     return Container(
-      color: AppTheme.bgColor,
+      color: Colors.grey[50], // White Theme Background
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -176,19 +305,22 @@ class DashboardScreen extends ConsumerWidget {
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Admin Dashboard", style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                  Text("Admin Dashboard", style: TextStyle(color: Colors.black87, fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                   SizedBox(height: 4),
-                  Text("Welcome back, Super Admin", style: TextStyle(color: Colors.white54, fontSize: 14)),
+                  Text("Welcome back, Super Admin", style: TextStyle(color: Colors.black54, fontSize: 14)),
                 ],
               ),
               Container(
-                height: 50, width: 50,
+                height: 60, width: 60,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppTheme.cardColor,
+                  color: Colors.white,
                   border: Border.all(color: AppTheme.accentCyan, width: 2),
+                  image: const DecorationImage(
+                    image: AssetImage('assets/St-Marys-school-logo.webp'),
+                    fit: BoxFit.contain,
+                  ),
                 ),
-                child: const Icon(Icons.shield, color: AppTheme.accentCyan),
               ).animate().scale(delay: 200.ms, duration: 400.ms, curve: Curves.easeOutBack),
             ],
           ).animate().fadeIn(duration: 400.ms).slideX(begin: -0.1, end: 0),
@@ -237,23 +369,32 @@ class DashboardScreen extends ConsumerWidget {
           const SizedBox(height: 30),
           
           Expanded(
-            child: GridView.count(
-              crossAxisCount: 2,
-              crossAxisSpacing: 20,
-              mainAxisSpacing: 20,
-              children: [
-                _buildMenuCard("Analytical Chart", Icons.bar_chart, AppTheme.accentEmerald, () {
-                  weeklyAsync.whenData((weekly) {
-                     statsAsync.whenData((stats) {
-                         _openChartScreen(context, weekly, stats);
-                     });
-                  });
-                }).animate().fadeIn(delay: 300.ms).scale(),
-                _buildMenuCard("Live View Reports", Icons.receipt_long, Colors.orangeAccent, () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const ReportsScreen()));
-                }).animate().fadeIn(delay: 400.ms).scale(),
-                _buildMenuCard("Export & Share", Icons.ios_share, AppTheme.accentCyan, () => _exportAndShareCSV(context, ref)).animate().fadeIn(delay: 500.ms).scale(),
-                _buildMenuCard("Admin Settings", Icons.admin_panel_settings, Colors.purpleAccent, () async {
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                int crossAxisCount = constraints.maxWidth > 800 ? 4 : (constraints.maxWidth > 500 ? 3 : 2);
+                double childAspectRatio = constraints.maxWidth > 800 ? 1.5 : (constraints.maxWidth > 500 ? 1.2 : 1.0);
+                
+                return GridView.count(
+                  crossAxisCount: crossAxisCount,
+                  childAspectRatio: childAspectRatio,
+                  crossAxisSpacing: 20,
+                  mainAxisSpacing: 20,
+                  children: [
+                    _buildMenuCard("Analytical Chart", Icons.bar_chart, AppTheme.accentEmerald, () {
+                      weeklyAsync.whenData((weekly) {
+                         statsAsync.whenData((stats) {
+                             _openChartScreen(context, weekly, stats);
+                         });
+                      });
+                    }).animate().fadeIn(delay: 300.ms).scale(),
+                    _buildMenuCard("Live View Reports", Icons.receipt_long, Colors.orangeAccent, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const ReportsScreen()));
+                    }).animate().fadeIn(delay: 400.ms).scale(),
+                    _buildMenuCard("Export & Share", Icons.ios_share, AppTheme.accentCyan, () => _showExportDialog(context, ref)).animate().fadeIn(delay: 500.ms).scale(),
+                    _buildMenuCard("Employee Directory", Icons.badge, Colors.blueAccent, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeeManagementScreen()));
+                    }).animate().fadeIn(delay: 550.ms).scale(),
+                    _buildMenuCard("Admin Settings", Icons.admin_panel_settings, Colors.purpleAccent, () async {
                   final LocalAuthentication auth = LocalAuthentication();
                   bool authenticated = false;
                   try {
@@ -267,8 +408,9 @@ class DashboardScreen extends ConsumerWidget {
                   }
                 }).animate().fadeIn(delay: 600.ms).scale(),
               ],
-            ),
-          )
+            );
+          }),
+        )
         ],
       ),
     );

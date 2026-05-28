@@ -46,6 +46,27 @@ class DatabaseHelper {
     String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     String nowTime = DateFormat('hh:mm a').format(DateTime.now());
 
+    // Check designation to determine Late Entry
+    String designation = 'Teaching Staff';
+    DocumentSnapshot studentDoc = await _firestore.collection('students').doc(registerNo).get();
+    if (studentDoc.exists) {
+      final data = studentDoc.data() as Map<String, dynamic>;
+      designation = data['designation'] ?? 'Teaching Staff';
+    }
+
+    String status = 'Present';
+    DateTime now = DateTime.now();
+    int currentMinutes = now.hour * 60 + now.minute;
+    
+    int limitMinutes = 9 * 60 + 10; // 9:10 AM for Teaching
+    if (designation == 'Non-Teaching Staff') {
+      limitMinutes = 10 * 60; // 10:00 AM for Non-Teaching
+    }
+    
+    if (currentMinutes > limitMinutes) {
+      status = 'Late Entry';
+    }
+
     QuerySnapshot existing = await _firestore
         .collection('attendance')
         .where('register_no', isEqualTo: registerNo)
@@ -60,7 +81,7 @@ class DatabaseHelper {
         'date': today,
         'in_time': nowTime,
         'out_time': '', // Empty on first scan
-        'status': 'Present'
+        'status': status
       });
       return {
         'name': name,
@@ -68,7 +89,7 @@ class DatabaseHelper {
         'dept': dept,
         'in_time': nowTime,
         'out_time': '',
-        'status': 'Present',
+        'status': status,
         'marked_type': 'IN'
       };
     } else {
@@ -86,7 +107,7 @@ class DatabaseHelper {
         'dept': dept,
         'in_time': record['in_time'],
         'out_time': nowTime,
-        'status': 'Present',
+        'status': record['status'] ?? status,
         'marked_type': 'OUT'
       };
     }

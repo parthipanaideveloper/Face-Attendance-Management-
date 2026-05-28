@@ -29,6 +29,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
   final TextEditingController _deptCtrl = TextEditingController();
   final FlutterTts _flutterTts = FlutterTts();
   String _gender = 'Male';
+  String _designation = 'Teaching Staff';
   bool _isProcessing = false;
 
   int _poseStep = 0; // 0: Idle, 1: Straight, 2: Left, 3: Right, 4: Up, 5: Down, 6: Done
@@ -227,6 +228,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
         'register_no': _regCtrl.text,
         'dept': _deptCtrl.text,
         'gender': _gender,
+        'designation': _designation,
         'image_path': _profileImagePath ?? '',
         'embedding': jsonEncode(_collectedEmbeddings)
       };
@@ -235,8 +237,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee Registered Successfully!"), backgroundColor: AppTheme.accentEmerald));
-        Future.delayed(const Duration(seconds: 1), () {
+        Future.delayed(const Duration(seconds: 1), () async {
           if (mounted) {
+            if (_controller != null) {
+              await _controller!.dispose();
+              _controller = null;
+            }
             final homeState = context.findAncestorStateOfType<HomeScreenState>();
             if (homeState != null) {
                homeState.switchToTab(0);
@@ -407,9 +413,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
               value: _gender,
               dropdownColor: AppTheme.cardColor,
               style: const TextStyle(color: Colors.white),
-              decoration: _inputDecoration("Gender", Icons.wc),
-              items: ['Male', 'Female', 'Others'].map((String v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+              decoration: _inputDecoration("Gender", Icons.person),
+              items: ['Male', 'Female', 'Others'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
               onChanged: (val) => setState(() => _gender = val!),
+            ),
+            const SizedBox(height: 15),
+            DropdownButtonFormField<String>(
+              value: _designation,
+              dropdownColor: AppTheme.cardColor,
+              style: const TextStyle(color: Colors.white),
+              decoration: _inputDecoration("Designation", Icons.work),
+              items: ['Teaching Staff', 'Non-Teaching Staff', 'Admin'].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+              onChanged: (val) => setState(() => _designation = val!),
             ),
             const SizedBox(height: 40),
             SizedBox(
