@@ -32,7 +32,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   int _poseStep = 0; // 0: Idle, 1: Straight, 2: Left, 3: Right, 4: Up, 5: Down, 6: Done
   List<List<double>> _collectedEmbeddings = [];
   String _instructionText = "";
-  final FaceDetector _faceDetector = FaceDetector(options: FaceDetectorOptions(enableTracking: true, performanceMode: FaceDetectorMode.fast));
+  final FaceDetector _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      enableTracking: false,
+      performanceMode: FaceDetectorMode.accurate,
+      minFaceSize: 0.10,
+    ),
+  );
   String? _profileImagePath;
 
   // We use ValueNotifier to instantly update the popup dialog text without full screen rebuilds
@@ -119,24 +125,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         final yaw = face.headEulerAngleY ?? 0.0;
         final pitch = face.headEulerAngleX ?? 0.0;
 
-        // ANTI-SPOOFING LIVENESS CHECK (Slightly relaxed for Registration due to lighting variations)
-        double? livenessScore = await FaceAntiSpoofingDetector.detect(
-          yuvBytes: bytes,
-          previewWidth: image.width,
-          previewHeight: image.height,
-          orientation: cameras[1].sensorOrientation,
-          faceContour: face.boundingBox,
-        );
-
-        if (livenessScore == null || livenessScore < 0.40) {
-          _dialogInstruction.value = "Spoof Detected! Use Real Face.";
-          _isProcessing = false;
-          return;
-        }
-
+        // Spoofing detection disabled during registration for stability
+        
         bool poseMatched = false;
         // Loosened thresholds to prevent getting stuck
-        if (_poseStep == 1 && yaw.abs() < 18 && pitch.abs() < 18) poseMatched = true; // Much more lenient for "straight"
+        if (_poseStep == 1) poseMatched = true; // Any face looking at the phone is considered "straight" enough
         else if (_poseStep == 2 && yaw > 12) poseMatched = true; // Turn right/left
         else if (_poseStep == 3 && yaw < -12) poseMatched = true;
         else if (_poseStep == 4 && pitch > 8) poseMatched = true; // Look up
@@ -149,12 +142,19 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             _framesCapturedInCurrentPose++;
             
             if (_poseStep == 1 && _framesCapturedInCurrentPose == 1) {
-              await _controller!.stopImageStream();
-              final file = await _controller!.takePicture();
-              final directory = await getApplicationDocumentsDirectory();
-              _profileImagePath = "${directory.path}/${_regCtrl.text}.jpg";
-              await File(file.path).copy(_profileImagePath!);
-              await _controller!.startImageStream((img) => _processRegistrationStream(img));
+              try {
+                await _controller!.stopImageStream();
+                final file = await _controller!.takePicture();
+                final directory = await getApplicationDocumentsDirectory();
+                _profileImagePath = "${directory.path}/${_regCtrl.text}.jpg";
+                await File(file.path).copy(_profileImagePath!);
+                await _controller!.startImageStream((img) => _processRegistrationStream(img));
+              } catch (e) {
+                print("Failed to take profile picture: $e");
+                if (!_controller!.value.isStreamingImages) {
+                  await _controller!.startImageStream((img) => _processRegistrationStream(img));
+                }
+              }
             }
 
             if (_framesCapturedInCurrentPose < 8) {

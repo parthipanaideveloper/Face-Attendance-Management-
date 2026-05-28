@@ -199,8 +199,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
 
       if (recognizedRegNo != null) {
         final student = students.firstWhere((s) => s['register_no'] == recognizedRegNo);
-        await db.logAttendance(recognizedRegNo, recognizedName!, student['dept']);
-        _showSuccessQuick(recognizedName);
+        final result = await db.logAttendance(recognizedRegNo, recognizedName!, student['dept']);
+        _showSuccessQuick(recognizedName, result['marked_type']);
       } else {
         setState(() { _statusText = "Face not recognized."; });
         // Minimal delay so we can re-scan quickly
@@ -222,13 +222,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> {
     }
   }
 
-  void _showSuccessQuick(String name) async {
+  void _showSuccessQuick(String name, String? markedType) async {
     _loadLiveStats(); 
-    _flutterTts.speak("Thank you");
+    _flutterTts.speak("Thank you. Marked $markedType");
     
     setState(() {
       _scanSuccess = true;
-      _statusText = "Thank You, $name!";
+      _statusText = "Thank You, $name!\nMarked $markedType";
     });
 
     await Future.delayed(const Duration(seconds: 2));

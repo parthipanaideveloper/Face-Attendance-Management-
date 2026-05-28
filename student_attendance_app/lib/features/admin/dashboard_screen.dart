@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:student_attendance_app/features/admin/providers/dashboard_provider.dart';
 import 'package:student_attendance_app/features/admin/admin_settings_screen.dart';
+import 'package:student_attendance_app/features/admin/reports_screen.dart';
 import 'package:student_attendance_app/core/theme/app_theme.dart';
 import 'package:student_attendance_app/core/providers/db_provider.dart';
 import 'package:intl/intl.dart';
@@ -59,64 +60,69 @@ class DashboardScreen extends ConsumerWidget {
           backgroundColor: AppTheme.cardColor,
           iconTheme: const IconThemeData(color: Colors.white),
         ),
-        body: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: BarChart(
-            BarChartData(
-              alignment: BarChartAlignment.spaceAround,
-              maxY: maxY,
-              barTouchData: BarTouchData(enabled: true),
-              titlesData: FlTitlesData(
-                show: true,
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    getTitlesWidget: (double value, TitleMeta meta) {
-                      const style = TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 14);
-                      String text;
-                      switch (value.toInt()) {
-                        case 0: text = 'Mon'; break;
-                        case 1: text = 'Tue'; break;
-                        case 2: text = 'Wed'; break;
-                        case 3: text = 'Thu'; break;
-                        case 4: text = 'Fri'; break;
-                        case 5: text = 'Sat'; break;
-                        default: text = ''; break;
-                      }
-                      return Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(text, style: style));
-                    },
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 800, maxHeight: 500),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: maxY,
+                  barTouchData: BarTouchData(enabled: true),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (double value, TitleMeta meta) {
+                          const style = TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 14);
+                          String text;
+                          switch (value.toInt()) {
+                            case 0: text = 'Mon'; break;
+                            case 1: text = 'Tue'; break;
+                            case 2: text = 'Wed'; break;
+                            case 3: text = 'Thu'; break;
+                            case 4: text = 'Fri'; break;
+                            case 5: text = 'Sat'; break;
+                            default: text = ''; break;
+                          }
+                          return Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(text, style: style));
+                        },
+                      ),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true, 
+                        reservedSize: 40, // Increased for tablets to prevent overlap
+                        interval: 1,
+                        getTitlesWidget: (double value, TitleMeta meta) {
+                           return Text(value.toInt().toString(), style: const TextStyle(color: Colors.white54, fontSize: 12));
+                        }
+                      ),
+                    ),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   ),
+                  gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (val) => FlLine(color: Colors.white10, strokeWidth: 1)),
+                  borderData: FlBorderData(show: false),
+                  barGroups: List.generate(6, (i) {
+                    return BarChartGroupData(
+                      x: i,
+                      barRods: [
+                        BarChartRodData(
+                          toY: weeklyData[i].toDouble(),
+                          gradient: const LinearGradient(colors: [AppTheme.accentCyan, AppTheme.accentEmerald], begin: Alignment.bottomCenter, end: Alignment.topCenter),
+                          width: 26, // Slightly wider for better visibility on tablets
+                          borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
+                        )
+                      ],
+                    );
+                  }),
                 ),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true, 
-                    reservedSize: 28, 
-                    interval: 1,
-                    getTitlesWidget: (double value, TitleMeta meta) {
-                       return Text(value.toInt().toString(), style: const TextStyle(color: Colors.white54, fontSize: 12));
-                    }
-                  ),
-                ),
-                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              ),
-              gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (val) => FlLine(color: Colors.white10, strokeWidth: 1)),
-              borderData: FlBorderData(show: false),
-              barGroups: List.generate(6, (i) {
-                return BarChartGroupData(
-                  x: i,
-                  barRods: [
-                    BarChartRodData(
-                      toY: weeklyData[i].toDouble(),
-                      gradient: const LinearGradient(colors: [AppTheme.accentCyan, AppTheme.accentEmerald], begin: Alignment.bottomCenter, end: Alignment.topCenter),
-                      width: 22,
-                      borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
-                    )
-                  ],
-                );
-              }),
+              ).animate().fadeIn(duration: 600.ms).slideY(begin: 0.2, end: 0, curve: Curves.easeOutCubic),
             ),
-          ).animate().fadeIn(duration: 600.ms).slideY(begin: 0.2, end: 0, curve: Curves.easeOutCubic),
+          ),
         ),
       );
     }));
@@ -220,7 +226,7 @@ class DashboardScreen extends ConsumerWidget {
                   });
                 }).animate().fadeIn(delay: 300.ms).scale(),
                 _buildMenuCard("Live View Reports", Icons.receipt_long, Colors.orangeAccent, () {
-                  // Implement live view screen push here
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const ReportsScreen()));
                 }).animate().fadeIn(delay: 400.ms).scale(),
                 _buildMenuCard("Export & Share", Icons.ios_share, AppTheme.accentCyan, () => _exportAndShareCSV(context, ref)).animate().fadeIn(delay: 500.ms).scale(),
                 _buildMenuCard("Admin Settings", Icons.admin_panel_settings, Colors.purpleAccent, () async {

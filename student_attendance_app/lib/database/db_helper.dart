@@ -26,6 +26,22 @@ class DatabaseHelper {
     return null;
   }
 
+  Future<void> updateStudent(Map<String, dynamic> student) async {
+    String registerNo = student['register_no'];
+    await _firestore.collection('students').doc(registerNo).update(student);
+  }
+
+  Future<void> deleteStudent(String registerNo) async {
+    await _firestore.collection('students').doc(registerNo).delete();
+  }
+
+  Future<void> deleteAllStudents() async {
+    QuerySnapshot snapshot = await _firestore.collection('students').get();
+    for (var doc in snapshot.docs) {
+      await doc.reference.delete();
+    }
+  }
+
   Future<Map<String, dynamic>> logAttendance(String registerNo, String name, String dept) async {
     String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     String nowTime = DateFormat('hh:mm a').format(DateTime.now());
@@ -38,11 +54,12 @@ class DatabaseHelper {
         .get();
 
     if (existing.docs.isEmpty) {
+      // First scan of the day -> Mark IN
       await _firestore.collection('attendance').add({
         'register_no': registerNo,
         'date': today,
         'in_time': nowTime,
-        'out_time': nowTime,
+        'out_time': '', // Empty on first scan
         'status': 'Present'
       });
       return {
@@ -50,10 +67,12 @@ class DatabaseHelper {
         'register_no': registerNo,
         'dept': dept,
         'in_time': nowTime,
-        'out_time': nowTime,
-        'status': 'Present'
+        'out_time': '',
+        'status': 'Present',
+        'marked_type': 'IN'
       };
     } else {
+      // Second scan of the day -> Mark OUT
       String docId = existing.docs.first.id;
       var record = existing.docs.first.data() as Map<String, dynamic>;
       
@@ -67,7 +86,8 @@ class DatabaseHelper {
         'dept': dept,
         'in_time': record['in_time'],
         'out_time': nowTime,
-        'status': 'Present'
+        'status': 'Present',
+        'marked_type': 'OUT'
       };
     }
   }
@@ -126,21 +146,23 @@ class DatabaseHelper {
         .where('date', isEqualTo: today)
         .get();
         
-    int presentToday = attendanceSnapshot.docs.length;
-    int absentToday = totalStudents - presentToday;
-    double rate = totalStudents > 0 ? (presentToday / totalStudents) * 100 : 0.0;
-
+    int presentToday = 0;
     Map<String, int> presentGender = {'Male': 0, 'Female': 0};
     
     for (var doc in attendanceSnapshot.docs) {
       var data = doc.data() as Map<String, dynamic>;
       var student = await getStudentByRegisterNo(data['register_no']);
       if (student != null) {
+        presentToday++;
         String gender = student['gender'] ?? '';
         if (gender == 'Male') presentGender['Male'] = presentGender['Male']! + 1;
         if (gender == 'Female') presentGender['Female'] = presentGender['Female']! + 1;
       }
     }
+
+    int absentToday = totalStudents - presentToday;
+    if (absentToday < 0) absentToday = 0;
+    double rate = totalStudents > 0 ? (presentToday / totalStudents) * 100 : 0.0;
 
     return {
       'total_students': totalStudents,

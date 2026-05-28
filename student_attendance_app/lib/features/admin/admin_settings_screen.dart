@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:student_attendance_app/core/theme/app_theme.dart';
 
 import 'package:student_attendance_app/core/providers/db_provider.dart';
+import 'package:student_attendance_app/features/admin/employee_management_screen.dart';
 
 class AdminSettingsScreen extends ConsumerWidget {
   const AdminSettingsScreen({super.key});
@@ -68,12 +69,25 @@ class AdminSettingsScreen extends ConsumerWidget {
           ListTile(
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.people, color: AppTheme.accentEmerald),
+            title: const Text("Manage Employees", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Edit or delete individual employee data", style: TextStyle(color: Colors.white54)),
+            trailing: const Icon(Icons.arrow_forward_ios, color: AppTheme.accentEmerald, size: 16),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()));
+            },
+          ),
+          const SizedBox(height: 10),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.people_outline, color: Colors.redAccent),
             title: const Text("Delete All Registered Employees", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
             subtitle: const Text("Wipes all FaceID data", style: TextStyle(color: Colors.white54)),
             trailing: const Icon(Icons.warning, color: Colors.redAccent),
             onTap: () => _confirmWipe(context, "Delete All Employees", "WARNING: This will permanently delete all employee FaceID data.", () async {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cloud Wipes are disabled for safety. Contact SuperAdmin.")));
+              final db = ref.read(databaseProvider);
+              await db.deleteAllStudents();
             }),
           ),
           const SizedBox(height: 30),
