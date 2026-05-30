@@ -4,7 +4,8 @@ import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:staff_attendance_app/core/providers/db_provider.dart';
 
 class EmployeeManagementScreen extends ConsumerStatefulWidget {
-  const EmployeeManagementScreen({super.key});
+  final String? zoneFilter;
+  const EmployeeManagementScreen({super.key, this.zoneFilter});
 
   @override
   ConsumerState<EmployeeManagementScreen> createState() => _EmployeeManagementScreenState();
@@ -33,6 +34,7 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
   void _showEditDialog(Map<String, dynamic> employee) {
     final TextEditingController nameCtrl = TextEditingController(text: employee['name']);
     final TextEditingController deptCtrl = TextEditingController(text: employee['dept']);
+    final TextEditingController mobileCtrl = TextEditingController(text: employee['mobile_no'] ?? '');
     String gender = employee['gender'] ?? 'Male';
     String designation = employee['designation'] ?? 'Teaching Staff';
 
@@ -61,6 +63,18 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: "Department",
+                  labelStyle: const TextStyle(color: Colors.white54),
+                  enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.white24)),
+                  focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: AppTheme.accentCyan)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: mobileCtrl,
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: "Mobile Number",
                   labelStyle: const TextStyle(color: Colors.white54),
                   enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.white24)),
                   focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: AppTheme.accentCyan)),
@@ -110,6 +124,7 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
               final updated = Map<String, dynamic>.from(employee);
               updated['name'] = nameCtrl.text;
               updated['dept'] = deptCtrl.text;
+              updated['mobile_no'] = mobileCtrl.text;
               updated['gender'] = gender;
               updated['designation'] = designation;
               await db.updateStaff(updated);
@@ -158,6 +173,9 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
   @override
   Widget build(BuildContext context) {
     final filteredEmployees = _employees.where((emp) {
+      if (widget.zoneFilter != null && emp['zone'] != widget.zoneFilter) {
+         return false;
+      }
       final query = _searchQuery.toLowerCase();
       final name = (emp['name'] ?? '').toLowerCase();
       final regNo = (emp['register_no'] ?? '').toLowerCase();
@@ -167,7 +185,7 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
     return Scaffold(
       backgroundColor: Colors.grey[50], // White Theme
       appBar: AppBar(
-        title: const Text("Employee Directory", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+        title: Text(widget.zoneFilter != null ? "${widget.zoneFilter} Staff" : "Employee Directory", style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         iconTheme: const IconThemeData(color: Colors.black87),
         elevation: 0,

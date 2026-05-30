@@ -24,9 +24,13 @@ class RegisterScreen extends ConsumerStatefulWidget {
 class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBindingObserver {
   CameraController? _controller;
   final TextEditingController _nameCtrl = TextEditingController();
-  final TextEditingController _regCtrl = TextEditingController();
-  final TextEditingController _deptCtrl = TextEditingController();
+  final TextEditingController _regSuffixCtrl = TextEditingController();
+  final TextEditingController _mobileCtrl = TextEditingController();
   final FlutterTts _flutterTts = FlutterTts();
+  
+  String _regPrefix = 'SMSZC';
+  String _dept = 'Tamil';
+  String _zone = 'LKG';
   String _gender = 'Male';
   String _designation = 'Teaching Staff';
   bool _isProcessing = false;
@@ -82,10 +86,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
   void _showError(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
 
   void _startRegistration() async {
-    if (_nameCtrl.text.isEmpty || _regCtrl.text.isEmpty || _deptCtrl.text.isEmpty) {
+    if (_nameCtrl.text.isEmpty || _regSuffixCtrl.text.isEmpty || _mobileCtrl.text.isEmpty) {
       _showError("Please fill all fields");
       return;
     }
+    if (_regSuffixCtrl.text.length != 2) {
+      _showError("Employee ID suffix must be exactly 2 digits");
+      return;
+    }
+
     
     _collectedEmbeddings.clear();
     _poseStep = -1; // -1 means countdown
@@ -162,7 +171,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
                 await _controller!.stopImageStream();
                 final file = await _controller!.takePicture();
                 final directory = await getApplicationDocumentsDirectory();
-                _profileImagePath = "${directory.path}/${_regCtrl.text}.jpg";
+                String fullRegNo = '$_regPrefix' + '47' + _regSuffixCtrl.text;
+                _profileImagePath = "${directory.path}/${fullRegNo}.jpg";
                 await File(file.path).copy(_profileImagePath!);
                 await _controller!.startImageStream((img) => _processRegistrationStream(img));
               } catch (e) {
@@ -211,8 +221,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
 
   Future<void> _finalizeRegistration() async {
     try {
+      String fullRegNo = '$_regPrefix' + '47' + _regSuffixCtrl.text;
       final db = ref.read(databaseProvider);
-      final existing = await db.getStaffByRegisterNo(_regCtrl.text);
+      final existing = await db.getStaffByRegisterNo(fullRegNo);
       if (existing != null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee with this Register Number already exists!"), backgroundColor: Colors.redAccent));
@@ -223,10 +234,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
 
       final staff = {
         'name': _nameCtrl.text,
-        'register_no': _regCtrl.text,
-        'dept': _deptCtrl.text,
+        'register_no': fullRegNo,
+        'dept': _dept,
         'gender': _gender,
         'designation': _designation,
+        'mobile_no': _mobileCtrl.text,
+        'zone': _zone,
+        'assigned_class': '',
         'image_path': _profileImagePath ?? '',
         'embedding': jsonEncode(_collectedEmbeddings)
       };
@@ -257,10 +271,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
   }
 
   Future<void> _uploadPhotos() async {
-    if (_nameCtrl.text.isEmpty || _regCtrl.text.isEmpty || _deptCtrl.text.isEmpty) {
+    if (_nameCtrl.text.isEmpty || _regSuffixCtrl.text.isEmpty || _mobileCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields first!")));
       return;
     }
+    if (_regSuffixCtrl.text.length != 2) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee ID suffix must be exactly 2 digits!")));
+      return;
+    }
+    
+    String fullRegNo = '$_regPrefix' + '47' + _regSuffixCtrl.text;
 
     final ImagePicker picker = ImagePicker();
     final List<XFile> images = await picker.pickMultiImage();
@@ -286,7 +306,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
              processedCount++;
              if (_profileImagePath == null) {
                 final directory = await getApplicationDocumentsDirectory();
-                _profileImagePath = "${directory.path}/${_regCtrl.text}.jpg";
+                String fullRegNo = '$_regPrefix' + '47' + _regSuffixCtrl.text;
+                _profileImagePath = "${directory.path}/${fullRegNo}.jpg";
                 await file.copy(_profileImagePath!);
              }
           }
@@ -324,8 +345,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     _nameCtrl.dispose();
-    _regCtrl.dispose();
-    _deptCtrl.dispose();
+    _regSuffixCtrl.dispose();
+    _mobileCtrl.dispose();
     _faceDetector.close();
     super.dispose();
   }
@@ -403,10 +424,75 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
             const SizedBox(height: 30),
             TextField(controller: _nameCtrl, style: const TextStyle(color: Colors.white), decoration: _inputDecoration("Full Name", Icons.person)),
             const SizedBox(height: 16),
-            TextField(controller: _regCtrl, style: const TextStyle(color: Colors.white), decoration: _inputDecoration("Register Number", Icons.badge)),
+            
+            // Employee ID Row
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<String>(
+                    value: _regPrefix,
+                    dropdownColor: AppTheme.cardColor,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: _inputDecoration("Prefix", Icons.badge),
+                    items: ['SMSZC', 'SMSTM', 'SMSAD', 'SMSOA', 'SMSAO', 'SMSTS'].map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
+                    onChanged: (val) => setState(() => _regPrefix = val!),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text("47", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _regSuffixCtrl,
+                    style: const TextStyle(color: Colors.white),
+                    keyboardType: TextInputType.number,
+                    maxLength: 2,
+                    decoration: _inputDecoration("ID", Icons.numbers).copyWith(counterText: ""),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
-            TextField(controller: _deptCtrl, style: const TextStyle(color: Colors.white), decoration: _inputDecoration("Department", Icons.business)),
+            
+            // Department Dropdown
+            DropdownButtonFormField<String>(
+              value: _dept,
+              dropdownColor: AppTheme.cardColor,
+              style: const TextStyle(color: Colors.white),
+              decoration: _inputDecoration("Department", Icons.business),
+              items: [
+                'Tamil', 'English', 'Maths', 'Science', 'K G Coordinator', 'Transport Management',
+                'Computer Science', 'STEM', 'HINDI', 'Administrative Director', 'Chemistry',
+                'Botany', 'Zoology', 'History', 'Admin Office (English)', 'Admin Office (Commerce)',
+                'Administrative Officer'
+              ].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+              onChanged: (val) => setState(() => _dept = val!),
+            ),
             const SizedBox(height: 16),
+            
+            // Mobile Number
+            TextField(
+              controller: _mobileCtrl,
+              style: const TextStyle(color: Colors.white),
+              keyboardType: TextInputType.phone,
+              maxLength: 10,
+              decoration: _inputDecoration("Mobile Number", Icons.phone).copyWith(counterText: ""),
+            ),
+            const SizedBox(height: 16),
+            
+            // Zone Dropdown
+            DropdownButtonFormField<String>(
+              value: _zone,
+              dropdownColor: AppTheme.cardColor,
+              style: const TextStyle(color: Colors.white),
+              decoration: _inputDecoration("Zone", Icons.map),
+              items: ['LKG', 'Pre KG', 'Secondary', 'Primary'].map((z) => DropdownMenuItem(value: z, child: Text(z))).toList(),
+              onChanged: (val) => setState(() => _zone = val!),
+            ),
+            const SizedBox(height: 16),
+            
             DropdownButtonFormField<String>(
               value: _gender,
               dropdownColor: AppTheme.cardColor,
@@ -415,7 +501,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
               items: ['Male', 'Female', 'Others'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
               onChanged: (val) => setState(() => _gender = val!),
             ),
-            const SizedBox(height: 15),
+            const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: _designation,
               dropdownColor: AppTheme.cardColor,

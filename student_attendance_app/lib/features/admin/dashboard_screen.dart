@@ -8,6 +8,8 @@ import 'package:staff_attendance_app/features/admin/providers/dashboard_provider
 import 'package:staff_attendance_app/features/admin/admin_settings_screen.dart';
 import 'package:staff_attendance_app/features/admin/reports_screen.dart';
 import 'package:staff_attendance_app/features/admin/employee_management_screen.dart';
+import 'package:staff_attendance_app/features/admin/zone_dashboard_screen.dart';
+import 'package:staff_attendance_app/features/admin/admin_schedule_screen.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:staff_attendance_app/core/providers/db_provider.dart';
 import 'package:intl/intl.dart';
@@ -257,6 +259,81 @@ class DashboardScreen extends ConsumerWidget {
     }));
   }
 
+  void _showAssignClassDialog(BuildContext context, WidgetRef ref) {
+    String _selectedClass = '12-B History';
+    String _staffRegNo = '';
+    
+    final classesList = [
+      '12-B History', '12-A Maths', '11 Physics', '10-B Chemistry', '10-A Tamil', '9 - English',
+      '8-A Zoology', '8-B Botany', '7-A Social', '7-b Tamil', '6-A Tamil', '6-B Science',
+      '5-A English', '5-B Tamil', '4-A Maths', '4-B English', '4-C Maths', '3 - A Tamil',
+      '3-b English', '3-C English', '3-D Maths', '2-A', '2-B', '2-C', '2-D', '1-A', '1-B', '1-C', '1-D',
+      'UKG-A', 'UKG-B', 'UKG-C', 'UKG-D', 'UKG-E', 'LKG -B', 'LKG - C', 'LKG - D', 'LKG - E',
+      'Coding', 'STEM', 'Hindi', 'Commerce / Accountancy', 'Computer Science', 'Economics'
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              title: const Text("Assign Special Class", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    onChanged: (val) => _staffRegNo = val,
+                    style: const TextStyle(color: Colors.black87),
+                    decoration: const InputDecoration(
+                      labelText: "Staff Register Number",
+                      prefixIcon: Icon(Icons.badge, color: AppTheme.accentCyan),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  DropdownButtonFormField<String>(
+                    value: _selectedClass,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: "Select Class",
+                      prefixIcon: Icon(Icons.class_, color: AppTheme.accentCyan),
+                    ),
+                    items: classesList.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                    onChanged: (val) => setState(() => _selectedClass = val!),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (_staffRegNo.isEmpty) return;
+                    Navigator.pop(ctx);
+                    final db = ref.read(databaseProvider);
+                    try {
+                      final existing = await db.getStaffByRegisterNo(_staffRegNo);
+                      if (existing != null) {
+                         await db.updateStaff({'register_no': _staffRegNo, 'assigned_class': _selectedClass});
+                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Class assigned successfully!"), backgroundColor: AppTheme.accentEmerald));
+                      } else {
+                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Staff not found!"), backgroundColor: Colors.red));
+                      }
+                    } catch(e) {
+                      print(e);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentCyan),
+                  child: const Text("Assign", style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          }
+        );
+      }
+    );
+  }
+
   Widget _buildMenuCard(String title, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
@@ -407,6 +484,15 @@ class DashboardScreen extends ConsumerWidget {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminSettingsScreen()));
                   }
                 }).animate().fadeIn(delay: 600.ms).scale(),
+                    _buildMenuCard("Zone Categories", Icons.map, Colors.indigoAccent, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const ZoneDashboardScreen()));
+                    }).animate().fadeIn(delay: 625.ms).scale(),
+                    _buildMenuCard("Assign Class", Icons.assignment_ind, AppTheme.accentEmerald, () {
+                      _showAssignClassDialog(context, ref);
+                    }).animate().fadeIn(delay: 650.ms).scale(),
+                    _buildMenuCard("Manage Schedule", Icons.calendar_month, Colors.pinkAccent, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScheduleScreen()));
+                    }).animate().fadeIn(delay: 675.ms).scale(),
               ],
             );
           }),

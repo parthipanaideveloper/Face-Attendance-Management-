@@ -3,6 +3,7 @@ import 'package:staff_attendance_app/features/attendance/scanner_screen.dart';
 import 'package:staff_attendance_app/features/admin/dashboard_screen.dart';
 import 'package:staff_attendance_app/features/admin/register_screen.dart';
 import 'package:staff_attendance_app/features/admin/admin_settings_screen.dart';
+import 'package:staff_attendance_app/features/admin/admin_auth_screen.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:local_auth/local_auth.dart';
 
@@ -22,7 +23,17 @@ class HomeScreenState extends State<HomeScreen> {
     const RegisterScreen(),
   ];
 
+  bool _isAdminAuthenticated = false;
+
   void _onTabTapped(int index) {
+    if (index == 1 || index == 2) {
+      if (!_isAdminAuthenticated) {
+        setState(() {
+          _currentIndex = index; // We still set index, but AnimatedSwitcher will show auth
+        });
+        return;
+      }
+    }
     setState(() {
       _currentIndex = index;
     });
@@ -30,9 +41,7 @@ class HomeScreenState extends State<HomeScreen> {
 
   void switchToTab(int index) {
     if (mounted) {
-      setState(() {
-        _currentIndex = index;
-      });
+      _onTabTapped(index);
     }
   }
 
@@ -91,7 +100,19 @@ class HomeScreenState extends State<HomeScreen> {
         transitionBuilder: (Widget child, Animation<double> animation) {
           return FadeTransition(opacity: animation, child: child);
         },
-        child: _screens[_currentIndex],
+        child: (_currentIndex == 1 || _currentIndex == 2) && !_isAdminAuthenticated
+            ? AdminAuthScreen(
+                key: const ValueKey("AuthScreen"),
+                onAuthenticated: () {
+                  setState(() {
+                    _isAdminAuthenticated = true;
+                  });
+                },
+              )
+            : SizedBox(
+                key: ValueKey(_currentIndex),
+                child: _screens[_currentIndex],
+              ),
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,

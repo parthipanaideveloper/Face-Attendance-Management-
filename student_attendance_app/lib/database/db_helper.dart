@@ -215,4 +215,30 @@ class DatabaseHelper {
     }
     return weeklyCounts;
   }
+
+  // SCHEDULE MANAGEMENT
+  Future<void> setSchedule(String date, String type) async {
+    await _firestore.collection('schedules').doc(date).set({
+      'date': date,
+      'type': type, // e.g., 'Working Day', 'Non-Working Day', 'Special Day'
+    }, SetOptions(merge: true));
+  }
+
+  Future<String?> getSchedule(String date) async {
+    DocumentSnapshot doc = await _firestore.collection('schedules').doc(date).get();
+    if (doc.exists) {
+      return (doc.data() as Map<String, dynamic>)['type'] as String?;
+    }
+    return null;
+  }
+
+  Future<Map<String, String>> getAllSchedules() async {
+    QuerySnapshot snapshot = await _firestore.collection('schedules').get();
+    Map<String, String> schedules = {};
+    for (var doc in snapshot.docs) {
+      var data = doc.data() as Map<String, dynamic>;
+      schedules[doc.id] = data['type'] as String;
+    }
+    return schedules;
+  }
 }
