@@ -6,14 +6,13 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:student_attendance_app/services/ml_service.dart';
-import 'package:student_attendance_app/main.dart';
+import 'package:staff_attendance_app/services/ml_service.dart';
+import 'package:staff_attendance_app/main.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:student_attendance_app/core/providers/db_provider.dart';
-import 'package:student_attendance_app/core/theme/app_theme.dart';
-import 'package:face_anti_spoofing_detector/face_anti_spoofing_detector.dart';
-import 'package:student_attendance_app/features/attendance/scanner_screen.dart';
-import 'package:student_attendance_app/features/attendance/home_screen.dart';
+import 'package:staff_attendance_app/core/providers/db_provider.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/features/attendance/scanner_screen.dart';
+import 'package:staff_attendance_app/features/attendance/home_screen.dart';
 import 'package:flutter/foundation.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -71,10 +70,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
 
   Future<void> _initializeCamera() async {
     if (cameras.isEmpty) return;
-    _controller = CameraController(cameras[1], ResolutionPreset.high, enableAudio: false, imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888);
+    _controller = CameraController(cameras[1], ResolutionPreset.low, enableAudio: false, imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888);
     try {
       await _controller!.initialize();
-      await FaceAntiSpoofingDetector.initialize();
       if (mounted) setState(() {});
     } catch (e) {
       print("Camera init error: $e");
@@ -214,7 +212,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
   Future<void> _finalizeRegistration() async {
     try {
       final db = ref.read(databaseProvider);
-      final existing = await db.getStudentByRegisterNo(_regCtrl.text);
+      final existing = await db.getStaffByRegisterNo(_regCtrl.text);
       if (existing != null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee with this Register Number already exists!"), backgroundColor: Colors.redAccent));
@@ -223,7 +221,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
         return;
       }
 
-      final student = {
+      final staff = {
         'name': _nameCtrl.text,
         'register_no': _regCtrl.text,
         'dept': _deptCtrl.text,
@@ -233,7 +231,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
         'embedding': jsonEncode(_collectedEmbeddings)
       };
       
-      await db.insertStudent(student);
+      await db.insertStaff(staff);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee Registered Successfully!"), backgroundColor: AppTheme.accentEmerald));

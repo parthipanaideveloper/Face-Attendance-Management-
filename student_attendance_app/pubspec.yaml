@@ -1,4 +1,4 @@
-name: student_attendance_app
+name: staff_attendance_app
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -47,7 +47,6 @@ dependencies:
   flutter_animate: ^4.5.0
   flutter_tts: ^4.0.2
   fl_chart: ^0.68.0
-  face_anti_spoofing_detector: ^0.0.4
   firebase_core: ^4.9.0
   cloud_firestore: ^6.4.1
   flutter_riverpod: ^2.6.1

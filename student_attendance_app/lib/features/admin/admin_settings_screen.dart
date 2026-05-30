@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:student_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
 
-import 'package:student_attendance_app/core/providers/db_provider.dart';
-import 'package:student_attendance_app/features/admin/employee_management_screen.dart';
+import 'package:staff_attendance_app/core/providers/db_provider.dart';
+import 'package:staff_attendance_app/features/admin/employee_management_screen.dart';
 
 class AdminSettingsScreen extends ConsumerWidget {
   const AdminSettingsScreen({super.key});
@@ -87,7 +87,7 @@ class AdminSettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.warning, color: Colors.redAccent),
             onTap: () => _confirmWipe(context, "Delete All Employees", "WARNING: This will permanently delete all employee FaceID data.", () async {
               final db = ref.read(databaseProvider);
-              await db.deleteAllStudents();
+              await db.deleteAllStaffs();
             }),
           ),
           const SizedBox(height: 30),

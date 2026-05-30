@@ -1,11 +1,11 @@
-class Student {
+class Staff {
   final String registerNo;
   final String name;
   final String dept;
   final String gender;
   final List<double>? faceEmbedding;
 
-  Student({
+  Staff({
     required this.registerNo,
     required this.name,
     required this.dept,
@@ -13,8 +13,8 @@ class Student {
     this.faceEmbedding,
   });
 
-  factory Student.fromMap(Map<String, dynamic> map) {
-    return Student(
+  factory Staff.fromMap(Map<String, dynamic> map) {
+    return Staff(
       registerNo: map['register_no'] ?? '',
       name: map['name'] ?? '',
       dept: map['dept'] ?? '',

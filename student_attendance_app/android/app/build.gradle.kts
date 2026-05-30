@@ -37,6 +37,10 @@ android {
             isShrinkResources = false
         }
     }
+
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 kotlin {

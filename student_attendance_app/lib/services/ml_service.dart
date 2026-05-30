@@ -12,6 +12,7 @@ class MLService {
   MLService._internal();
 
   Interpreter? _interpreter;
+  String? initError;
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
       enableContours: false,
@@ -28,6 +29,7 @@ class MLService {
       _interpreter = await Interpreter.fromAsset('assets/mobilefacenet.tflite');
       print('MobileFaceNet TFLite Model loaded successfully');
     } catch (e) {
+      initError = e.toString();
       print('Error loading model: $e');
     }
   }
@@ -46,7 +48,7 @@ class MLService {
   }
 
   Future<List<double>?> getEmbeddingFromStream(Uint8List bytes, int width, int height, Face face, int sensorOrientation) async {
-    if (_interpreter == null) return null;
+    if (_interpreter == null) throw Exception("Model not loaded: $initError");
 
     var imgData = img.Image(width: width, height: height);
     final int frameSize = width * height;
@@ -75,10 +77,12 @@ class MLService {
     final bbox = face.boundingBox;
     int x = max(0, bbox.left.toInt());
     int y = max(0, bbox.top.toInt());
-    int w = min(rotatedImage.width - x, bbox.width.toInt());
-    int h = min(rotatedImage.height - y, bbox.height.toInt());
+    int right = min(rotatedImage.width, bbox.right.toInt());
+    int bottom = min(rotatedImage.height, bbox.bottom.toInt());
+    int w = right - x;
+    int h = bottom - y;
 
-    if (w <= 0 || h <= 0) return null;
+    if (w <= 0 || h <= 0) throw Exception("Face crop invalid: w=$w, h=$h, bounds=${rotatedImage.width}x${rotatedImage.height}");
 
     final croppedImage = img.copyCrop(rotatedImage, x: x, y: y, width: w, height: h);
     final resizedImage = img.copyResize(croppedImage, width: 112, height: 112);

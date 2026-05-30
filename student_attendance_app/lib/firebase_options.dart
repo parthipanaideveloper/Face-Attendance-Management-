@@ -64,7 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '200830186800',
     projectId: 'student-attendance-app-0-2186f',
     storageBucket: 'student-attendance-app-0-2186f.firebasestorage.app',
-    iosBundleId: 'com.example.studentAttendanceApp',
+    iosBundleId: 'com.example.staffAttendanceApp',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -73,7 +73,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '200830186800',
     projectId: 'student-attendance-app-0-2186f',
     storageBucket: 'student-attendance-app-0-2186f.firebasestorage.app',
-    iosBundleId: 'com.example.studentAttendanceApp',
+    iosBundleId: 'com.example.staffAttendanceApp',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

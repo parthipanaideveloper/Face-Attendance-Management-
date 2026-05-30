@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:student_attendance_app/core/theme/app_theme.dart';
-import 'package:student_attendance_app/core/providers/db_provider.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/core/providers/db_provider.dart';
 
 class EmployeeManagementScreen extends ConsumerStatefulWidget {
   const EmployeeManagementScreen({super.key});
@@ -23,7 +23,7 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
   Future<void> _loadEmployees() async {
     setState(() => _isLoading = true);
     final db = ref.read(databaseProvider);
-    final employees = await db.getAllStudents();
+    final employees = await db.getAllStaffs();
     setState(() {
       _employees = employees;
       _isLoading = false;
@@ -112,7 +112,7 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
               updated['dept'] = deptCtrl.text;
               updated['gender'] = gender;
               updated['designation'] = designation;
-              await db.updateStudent(updated);
+              await db.updateStaff(updated);
               if (mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee updated!")));
@@ -139,7 +139,7 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () async {
               final db = ref.read(databaseProvider);
-              await db.deleteStudent(registerNo);
+              await db.deleteStaff(registerNo);
               if (mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee deleted!")));

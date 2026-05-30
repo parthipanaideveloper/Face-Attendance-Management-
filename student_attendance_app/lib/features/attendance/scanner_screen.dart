@@ -8,13 +8,11 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:student_attendance_app/main.dart';
-import 'package:student_attendance_app/services/ml_service.dart';
-import 'package:student_attendance_app/database/db_helper.dart';
-import 'package:student_attendance_app/core/theme/app_theme.dart';
-import 'package:student_attendance_app/core/providers/db_provider.dart';
-import 'package:face_anti_spoofing_detector/face_anti_spoofing_detector.dart';
-
+import 'package:staff_attendance_app/main.dart';
+import 'package:staff_attendance_app/services/ml_service.dart';
+import 'package:staff_attendance_app/database/db_helper.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/core/providers/db_provider.dart';
 class ScannerScreen extends ConsumerStatefulWidget {
   const ScannerScreen({super.key});
   @override
@@ -31,7 +29,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
   Rect? _faceRect;
   Size? _imageSize;
 
-  int _totalStudents = 0;
+  int _totalStaffs = 0;
   int _presentToday = 0;
 
   @override
@@ -61,7 +59,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     final stats = await db.getDashboardAnalytics();
     if (mounted) {
       setState(() {
-        _totalStudents = stats['total_students'];
+        _totalStaffs = stats['total_staffs'];
         _presentToday = stats['present_today'];
       });
     }
@@ -71,13 +69,12 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     if (cameras.isEmpty) return;
     _controller = CameraController(
       cameras[1], 
-      ResolutionPreset.high, 
+      ResolutionPreset.low, 
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
     );
     try {
       await _controller!.initialize();
-      await FaceAntiSpoofingDetector.initialize();
       if (mounted) setState(() {});
       _startScanning();
       _flutterTts.speak("Look at the camera");
@@ -90,12 +87,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
   List<int> _challengeSequence = [];
   DateTime? _challengeStartTime;
 
+  DateTime _lastProcessTime = DateTime.now();
+
   void _startScanning() {
     if (_controller == null || !_controller!.value.isInitialized) return;
     
     _controller!.startImageStream((CameraImage image) async {
       if (_isProcessing) return;
+      
+      // Throttle processing to max ~3 frames per second to keep UI buttery smooth
+      final now = DateTime.now();
+      if (now.difference(_lastProcessTime).inMilliseconds < 300) return;
+      
       _isProcessing = true;
+      _lastProcessTime = now;
 
       try {
         final WriteBuffer allBytes = WriteBuffer();
@@ -151,7 +156,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
       }
     });
   }
-
   bool _scanSuccess = false;
 
   Future<void> _processAttendance(Uint8List bytes, int width, int height, Face face) async {
@@ -182,13 +186,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
       if (embedding == null) throw Exception("Failed to extract features.");
       
       final db = ref.read(databaseProvider);
-      final students = await db.getAllStudents();
+      final staffs = await db.getAllStaffs();
       String? recognizedRegNo;
       String? recognizedName;
       double minDistance = 999.0;
 
-      for (var student in students) {
-        var decoded = jsonDecode(student['embedding']);
+      for (var staff in staffs) {
+        var decoded = jsonDecode(staff['embedding']);
         if (decoded.isEmpty) continue;
 
         if (decoded[0] is List) {
@@ -199,8 +203,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
               minDistance = distance;
               // STRICT THRESHOLD (0.70) to prevent false positives and name confusion
               if (minDistance < 0.70) {
-                recognizedRegNo = student['register_no'];
-                recognizedName = student['name'];
+                recognizedRegNo = staff['register_no'];
+                recognizedName = staff['name'];
               }
             }
           }
@@ -210,16 +214,16 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
           if (distance < minDistance) {
             minDistance = distance;
             if (minDistance < 0.70) {
-              recognizedRegNo = student['register_no'];
-              recognizedName = student['name'];
+              recognizedRegNo = staff['register_no'];
+              recognizedName = staff['name'];
             }
           }
         }
       }
 
       if (recognizedRegNo != null) {
-        final student = students.firstWhere((s) => s['register_no'] == recognizedRegNo);
-        final result = await db.logAttendance(recognizedRegNo, recognizedName!, student['dept']);
+        final staff = staffs.firstWhere((s) => s['register_no'] == recognizedRegNo);
+        final result = await db.logAttendance(recognizedRegNo, recognizedName!, staff['dept']);
         _showSuccessQuick(recognizedName, result['marked_type']);
       } else {
         setState(() { _statusText = "Face not recognized."; });
@@ -232,7 +236,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
       }
     } catch (e) {
       String errStr = e.toString();
-      if (errStr.length > 30) errStr = errStr.substring(0, 30);
+      if (errStr.length > 100) errStr = errStr.substring(0, 100);
       setState(() { _statusText = "Err: $errStr"; });
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) {
@@ -288,7 +292,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
-    FaceAntiSpoofingDetector.destroy();
     super.dispose();
   }
 
@@ -394,7 +397,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          _buildStatBadge("Total", _totalStudents.toString(), Colors.white),
+                          _buildStatBadge("Total", _totalStaffs.toString(), Colors.white),
                           const SizedBox(width: 15),
                           _buildStatBadge("Present", _presentToday.toString(), AppTheme.accentEmerald),
                         ],
@@ -439,7 +442,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                     _statusText, 
                     style: TextStyle(
                       color: frameColor,
-                      fontSize: 24, 
+                      fontSize: 16, 
                       fontWeight: FontWeight.bold,
                       letterSpacing: 0.5,
                     ), 

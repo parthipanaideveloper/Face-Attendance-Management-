@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:student_attendance_app/core/theme/app_theme.dart';
-import 'package:student_attendance_app/core/providers/db_provider.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/core/providers/db_provider.dart';
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});

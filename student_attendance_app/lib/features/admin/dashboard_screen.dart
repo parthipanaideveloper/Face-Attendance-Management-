@@ -4,12 +4,12 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:student_attendance_app/features/admin/providers/dashboard_provider.dart';
-import 'package:student_attendance_app/features/admin/admin_settings_screen.dart';
-import 'package:student_attendance_app/features/admin/reports_screen.dart';
-import 'package:student_attendance_app/features/admin/employee_management_screen.dart';
-import 'package:student_attendance_app/core/theme/app_theme.dart';
-import 'package:student_attendance_app/core/providers/db_provider.dart';
+import 'package:staff_attendance_app/features/admin/providers/dashboard_provider.dart';
+import 'package:staff_attendance_app/features/admin/admin_settings_screen.dart';
+import 'package:staff_attendance_app/features/admin/reports_screen.dart';
+import 'package:staff_attendance_app/features/admin/employee_management_screen.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/core/providers/db_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:local_auth/local_auth.dart';
@@ -173,7 +173,7 @@ class DashboardScreen extends ConsumerWidget {
 
   void _openChartScreen(BuildContext context, List<int> weeklyData, Map<String, dynamic> analytics) {
     Navigator.push(context, MaterialPageRoute(builder: (context) {
-      int total = analytics['total_students'] ?? 0;
+      int total = analytics['total_staffs'] ?? 0;
       double maxY = total.toDouble();
       if (maxY < 6) maxY = 6.0;
 
@@ -332,7 +332,7 @@ class DashboardScreen extends ConsumerWidget {
             data: (stats) {
               return Row(
                 children: [
-                  Expanded(child: _buildStatCard("Total Staff", stats['total_students'].toString(), Icons.people, AppTheme.accentCyan)),
+                  Expanded(child: _buildStatCard("Total Staff", stats['total_staffs'].toString(), Icons.people, AppTheme.accentCyan)),
                   const SizedBox(width: 16),
                   Expanded(child: _buildStatCard("Present Today", stats['present_today'].toString(), Icons.check_circle, AppTheme.accentEmerald)),
                 ],

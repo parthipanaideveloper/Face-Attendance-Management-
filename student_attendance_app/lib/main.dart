@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:student_attendance_app/features/attendance/home_screen.dart';
-import 'package:student_attendance_app/core/theme/app_theme.dart';
-import 'package:student_attendance_app/services/ml_service.dart';
+import 'package:staff_attendance_app/features/attendance/home_screen.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/services/ml_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart'; // Make sure you have run 'flutterfire configure'

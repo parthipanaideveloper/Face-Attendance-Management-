@@ -5,8 +5,8 @@ class AttendanceLog {
   final String inTime;
   final String outTime;
   final String status;
-  final String? name; // Joined from Student
-  final String? dept; // Joined from Student
+  final String? name; // Joined from Staff
+  final String? dept; // Joined from Staff
 
   AttendanceLog({
     this.id,

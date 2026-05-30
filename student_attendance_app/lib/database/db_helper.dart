@@ -8,17 +8,17 @@ class DatabaseHelper {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  Future<void> insertStudent(Map<String, dynamic> student) async {
-    String registerNo = student['register_no'];
-    await _firestore.collection('students').doc(registerNo).set(student, SetOptions(merge: true));
+  Future<void> insertStaff(Map<String, dynamic> staff) async {
+    String registerNo = staff['register_no'];
+    await _firestore.collection('students').doc(registerNo).set(staff, SetOptions(merge: true));
   }
 
-  Future<List<Map<String, dynamic>>> getAllStudents() async {
+  Future<List<Map<String, dynamic>>> getAllStaffs() async {
     QuerySnapshot snapshot = await _firestore.collection('students').get();
     return snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
   }
 
-  Future<Map<String, dynamic>?> getStudentByRegisterNo(String registerNo) async {
+  Future<Map<String, dynamic>?> getStaffByRegisterNo(String registerNo) async {
     DocumentSnapshot doc = await _firestore.collection('students').doc(registerNo).get();
     if (doc.exists) {
       return doc.data() as Map<String, dynamic>;
@@ -26,16 +26,16 @@ class DatabaseHelper {
     return null;
   }
 
-  Future<void> updateStudent(Map<String, dynamic> student) async {
-    String registerNo = student['register_no'];
-    await _firestore.collection('students').doc(registerNo).update(student);
+  Future<void> updateStaff(Map<String, dynamic> staff) async {
+    String registerNo = staff['register_no'];
+    await _firestore.collection('students').doc(registerNo).update(staff);
   }
 
-  Future<void> deleteStudent(String registerNo) async {
+  Future<void> deleteStaff(String registerNo) async {
     await _firestore.collection('students').doc(registerNo).delete();
   }
 
-  Future<void> deleteAllStudents() async {
+  Future<void> deleteAllStaffs() async {
     QuerySnapshot snapshot = await _firestore.collection('students').get();
     for (var doc in snapshot.docs) {
       await doc.reference.delete();
@@ -48,9 +48,9 @@ class DatabaseHelper {
 
     // Check designation to determine Late Entry
     String designation = 'Teaching Staff';
-    DocumentSnapshot studentDoc = await _firestore.collection('students').doc(registerNo).get();
-    if (studentDoc.exists) {
-      final data = studentDoc.data() as Map<String, dynamic>;
+    DocumentSnapshot staffDoc = await _firestore.collection('students').doc(registerNo).get();
+    if (staffDoc.exists) {
+      final data = staffDoc.data() as Map<String, dynamic>;
       designation = data['designation'] ?? 'Teaching Staff';
     }
 
@@ -122,11 +122,11 @@ class DatabaseHelper {
     List<Map<String, dynamic>> result = [];
     for (var doc in attendanceSnapshot.docs) {
       var attData = doc.data() as Map<String, dynamic>;
-      var studentData = await getStudentByRegisterNo(attData['register_no']);
-      if (studentData != null) {
-        attData['name'] = studentData['name'];
-        attData['dept'] = studentData['dept'];
-        attData['gender'] = studentData['gender'];
+      var staffData = await getStaffByRegisterNo(attData['register_no']);
+      if (staffData != null) {
+        attData['name'] = staffData['name'];
+        attData['dept'] = staffData['dept'];
+        attData['gender'] = staffData['gender'];
         result.add(attData);
       }
     }
@@ -145,11 +145,11 @@ class DatabaseHelper {
     List<Map<String, dynamic>> result = [];
     for (var doc in attendanceSnapshot.docs) {
       var attData = doc.data() as Map<String, dynamic>;
-      var studentData = await getStudentByRegisterNo(attData['register_no']);
-      if (studentData != null) {
-        attData['name'] = studentData['name'];
-        attData['dept'] = studentData['dept'];
-        attData['gender'] = studentData['gender'];
+      var staffData = await getStaffByRegisterNo(attData['register_no']);
+      if (staffData != null) {
+        attData['name'] = staffData['name'];
+        attData['dept'] = staffData['dept'];
+        attData['gender'] = staffData['gender'];
         result.add(attData);
       }
     }
@@ -159,8 +159,8 @@ class DatabaseHelper {
   Future<Map<String, dynamic>> getDashboardAnalytics() async {
     String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-    AggregateQuerySnapshot studentsQuery = await _firestore.collection('students').count().get();
-    int totalStudents = studentsQuery.count ?? 0;
+    AggregateQuerySnapshot staffsQuery = await _firestore.collection('students').count().get();
+    int totalStaffs = staffsQuery.count ?? 0;
 
     QuerySnapshot attendanceSnapshot = await _firestore
         .collection('attendance')
@@ -172,21 +172,21 @@ class DatabaseHelper {
     
     for (var doc in attendanceSnapshot.docs) {
       var data = doc.data() as Map<String, dynamic>;
-      var student = await getStudentByRegisterNo(data['register_no']);
-      if (student != null) {
+      var staff = await getStaffByRegisterNo(data['register_no']);
+      if (staff != null) {
         presentToday++;
-        String gender = student['gender'] ?? '';
+        String gender = staff['gender'] ?? '';
         if (gender == 'Male') presentGender['Male'] = presentGender['Male']! + 1;
         if (gender == 'Female') presentGender['Female'] = presentGender['Female']! + 1;
       }
     }
 
-    int absentToday = totalStudents - presentToday;
+    int absentToday = totalStaffs - presentToday;
     if (absentToday < 0) absentToday = 0;
-    double rate = totalStudents > 0 ? (presentToday / totalStudents) * 100 : 0.0;
+    double rate = totalStaffs > 0 ? (presentToday / totalStaffs) * 100 : 0.0;
 
     return {
-      'total_students': totalStudents,
+      'total_staffs': totalStaffs,
       'present_today': presentToday,
       'absent_today': absentToday,
       'today_attendance_rate': rate.toStringAsFixed(1),
