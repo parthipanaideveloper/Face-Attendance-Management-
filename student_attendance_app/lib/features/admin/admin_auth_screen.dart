@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AdminAuthScreen extends StatefulWidget {
   final VoidCallback onAuthenticated;
@@ -13,8 +14,21 @@ class AdminAuthScreen extends StatefulWidget {
 
 class _AdminAuthScreenState extends State<AdminAuthScreen> {
   String _pin = '';
-  final String _correctPin = '1234'; // Default Admin PIN
+  String _correctPin = '1234'; // Default Admin PIN
   bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAdminPin();
+  }
+
+  Future<void> _loadAdminPin() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _correctPin = prefs.getString('admin_pin') ?? '1234';
+    });
+  }
 
   void _onKeyPress(String key) {
     if (_pin.length < 4) {

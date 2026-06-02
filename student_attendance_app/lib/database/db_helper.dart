@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:staff_attendance_app/services/sim_sms_service.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -83,6 +84,15 @@ class DatabaseHelper {
         'out_time': '', // Empty on first scan
         'status': status
       });
+      
+      if (staffDoc.exists) {
+        final data = staffDoc.data() as Map<String, dynamic>;
+        final phone = data['phone_number'] ?? '';
+        if (phone.isNotEmpty) {
+          SimSmsService.sendSms(phone, "Dear $name, your attendance is marked as $status (IN) at $nowTime.");
+        }
+      }
+
       return {
         'name': name,
         'register_no': registerNo,
@@ -100,6 +110,14 @@ class DatabaseHelper {
       await _firestore.collection('attendance').doc(docId).update({
         'out_time': nowTime,
       });
+
+      if (staffDoc.exists) {
+        final data = staffDoc.data() as Map<String, dynamic>;
+        final phone = data['phone_number'] ?? '';
+        if (phone.isNotEmpty) {
+          SimSmsService.sendSms(phone, "Dear $name, your attendance is marked OUT at $nowTime.");
+        }
+      }
 
       return {
         'name': name,

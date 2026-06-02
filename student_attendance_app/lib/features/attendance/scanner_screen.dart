@@ -69,7 +69,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     if (cameras.isEmpty) return;
     _controller = CameraController(
       cameras[1], 
-      ResolutionPreset.low, 
+      ResolutionPreset.high, 
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
     );
@@ -248,7 +248,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
 
   void _showSuccessQuick(String name, String? markedType) async {
     _loadLiveStats(); 
-    _flutterTts.speak("Thank you. Marked $markedType");
+    _flutterTts.speak("Thank you $name. Marked $markedType");
     
     setState(() {
       _scanSuccess = true;
@@ -363,37 +363,38 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
             child: Column(
               children: [
                 const SizedBox(height: 10),
-                // Header (with transparent/blur background for readability)
+                // Header (compact)
                 Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  padding: const EdgeInsets.all(15),
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min, // Hug contents tightly
                     children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Image.asset('assets/St-Marys-school-logo.webp', height: 65, width: 65, fit: BoxFit.contain),
-                          const SizedBox(width: 10),
+                          Image.asset('assets/St-Marys-school-logo.webp', height: 50, width: 50, fit: BoxFit.contain),
+                          const SizedBox(width: 8),
                           const Expanded(
                             child: Text(
-                              "St.Marrys Schoool Attendance System", 
+                              "St.Mary's School Attendance", 
                               style: TextStyle(
                                 color: AppTheme.accentCyan, 
                                 fontSize: 18, 
                                 fontWeight: FontWeight.w800,
-                                letterSpacing: 1.0,
                               ),
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
+                              textAlign: TextAlign.left,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 15),
+                      const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -408,7 +409,15 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                 
                 const SizedBox(height: 30),
                 
-                if (!_scanSuccess)
+                if (_scanSuccess)
+                  Column(
+                    children: [
+                      const Icon(Icons.check_circle, color: AppTheme.accentEmerald, size: 80)
+                          .animate()
+                          .scale(duration: 400.ms, curve: Curves.easeOutBack),
+                    ],
+                  )
+                else
                   Column(
                     children: [
                       Icon(Icons.keyboard_double_arrow_up, color: _faceDetected ? Colors.green : frameColor, size: 80)
@@ -429,24 +438,26 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                   ),
                 
                 const Spacer(),
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(bottom: 50, left: 20, right: 20),
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: frameColor, width: 2),
-                  ),
-                  child: Text(
-                    _statusText, 
-                    style: TextStyle(
-                      color: frameColor,
-                      fontSize: 16, 
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ), 
-                    textAlign: TextAlign.center,
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 30),
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(color: frameColor, width: 2),
+                    ),
+                    child: Text(
+                      _statusText, 
+                      style: TextStyle(
+                        color: frameColor,
+                        fontSize: 16, 
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ), 
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               ],

@@ -8,16 +8,17 @@ from datetime import datetime
 def load_registered_students():
     conn = sqlite3.connect("attendance_system.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT register_no, name, image_path FROM students")
+    cursor.execute("SELECT register_no, name, phone_number, image_path FROM students")
     students = cursor.fetchall()
     conn.close()
 
     known_face_encodings = []
     known_face_register_nos = []
     known_face_names = []
+    known_face_phone_numbers = []
 
     print("[INFO] Loading registered faces...")
-    for reg_no, name, img_path in students:
+    for reg_no, name, phone, img_path in students:
         if os.path.exists(img_path):
             image = face_recognition.load_image_file(img_path)
             # Ensure the image actually contains a face
@@ -26,20 +27,25 @@ def load_registered_students():
                 known_face_encodings.append(encodings[0])
                 known_face_register_nos.append(reg_no)
                 known_face_names.append(name)
+                known_face_phone_numbers.append(phone)
             else:
                 print(f"[WARNING] No face found in {img_path}. Skipping student {name}.")
         else:
             print(f"[WARNING] Image path not found: {img_path}")
 
-    return known_face_encodings, known_face_register_nos, known_face_names
+    return known_face_encodings, known_face_register_nos, known_face_names, known_face_phone_numbers
 
-def log_attendance(register_no, name):
+def log_attendance(register_no, name, phone_number):
     conn = sqlite3.connect("attendance_system.db")
     cursor = conn.cursor()
 
     now = datetime.now()
     current_date = now.strftime("%Y-%m-%d")
     current_time = now.strftime("%H:%M:%S")
+
+    # Check late cutoff (09:30:00)
+    cutoff_time = "09:30:00"
+    status = "Present" if current_time <= cutoff_time else "Late Entry"
 
     # Check if student already marked attendance today
     cursor.execute("SELECT * FROM attendance WHERE register_no=? AND date=?", (register_no, current_date))
@@ -50,9 +56,14 @@ def log_attendance(register_no, name):
         cursor.execute('''
             INSERT INTO attendance (register_no, date, in_time, out_time, status)
             VALUES (?, ?, ?, ?, ?)
-        ''', (register_no, current_date, current_time, current_time, 'Present'))
+        ''', (register_no, current_date, current_time, current_time, status))
         conn.commit()
-        print(f"[ATTENDANCE] Marked {name} (Reg No: {register_no}) PRESENT at {current_time} (IN-TIME)")
+        print(f"[ATTENDANCE] Marked {name} (Reg No: {register_no}) {status.upper()} at {current_time} (IN-TIME)")
+        
+        # Send SMS
+        from sms_service import send_sms
+        message = f"Dear {name}, your attendance is marked as {status} for {current_date} at {current_time}."
+        send_sms(phone_number, message)
     else:
         # Already seen today -> Update Out-Time
         # We only update out_time so that the last time they are seen is their final out_time
@@ -66,7 +77,7 @@ def log_attendance(register_no, name):
     conn.close()
 
 def main():
-    known_face_encodings, known_face_register_nos, known_face_names = load_registered_students()
+    known_face_encodings, known_face_register_nos, known_face_names, known_face_phone_numbers = load_registered_students()
 
     if not known_face_encodings:
         print("[ERROR] No registered students found. Please run register.py first.")
@@ -116,9 +127,10 @@ def main():
                     if matches[best_match_index]:
                         name = known_face_names[best_match_index]
                         register_no = known_face_register_nos[best_match_index]
+                        phone_number = known_face_phone_numbers[best_match_index]
                         
                         # Log attendance!
-                        log_attendance(register_no, name)
+                        log_attendance(register_no, name, phone_number)
 
                 face_names.append(name)
 

@@ -74,7 +74,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
 
   Future<void> _initializeCamera() async {
     if (cameras.isEmpty) return;
-    _controller = CameraController(cameras[1], ResolutionPreset.low, enableAudio: false, imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888);
+    _controller = CameraController(cameras[1], ResolutionPreset.high, enableAudio: false, imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888);
     try {
       await _controller!.initialize();
       if (mounted) setState(() {});
@@ -238,7 +238,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
         'dept': _dept,
         'gender': _gender,
         'designation': _designation,
-        'mobile_no': _mobileCtrl.text,
+        'mobile_no': _mobileCtrl.text.startsWith('+91') ? _mobileCtrl.text : '+91${_mobileCtrl.text}',
         'zone': _zone,
         'assigned_class': '',
         'image_path': _profileImagePath ?? '',
@@ -328,10 +328,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
     }
   }
 
-  InputDecoration _inputDecoration(String label, IconData icon) {
+  InputDecoration _inputDecoration(String label, IconData icon, {String? prefixText}) {
     return InputDecoration(
       labelText: label,
       labelStyle: const TextStyle(color: Colors.white70),
+      prefixText: prefixText,
+      prefixStyle: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
       prefixIcon: Icon(icon, color: AppTheme.accentCyan),
       filled: true,
       fillColor: AppTheme.cardColor,
@@ -478,7 +480,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
               style: const TextStyle(color: Colors.white),
               keyboardType: TextInputType.phone,
               maxLength: 10,
-              decoration: _inputDecoration("Mobile Number", Icons.phone).copyWith(counterText: ""),
+              decoration: _inputDecoration("Mobile Number", Icons.phone, prefixText: "+91 ").copyWith(counterText: ""),
             ),
             const SizedBox(height: 16),
             

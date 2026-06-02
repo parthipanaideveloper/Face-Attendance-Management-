@@ -12,6 +12,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             register_no TEXT UNIQUE NOT NULL,
             name TEXT NOT NULL,
+            phone_number TEXT NOT NULL,
             image_path TEXT NOT NULL
         )
     ''')

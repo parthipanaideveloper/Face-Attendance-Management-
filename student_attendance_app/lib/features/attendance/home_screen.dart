@@ -33,6 +33,9 @@ class HomeScreenState extends State<HomeScreen> {
         });
         return;
       }
+    } else {
+      // Lock admin access when going back to the Scanner
+      _isAdminAuthenticated = false;
     }
     setState(() {
       _currentIndex = index;
