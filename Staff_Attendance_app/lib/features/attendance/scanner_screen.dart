@@ -506,86 +506,156 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
             return AlertDialog(
               backgroundColor: AppTheme.cardColor,
               title: const Text("Correct Mismatch", style: TextStyle(color: Colors.white)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text("Enter your ID number to verify mismatch:", style: TextStyle(color: Colors.white70)),
-                  const SizedBox(height: 10),
-                  Text(pinCode.isEmpty ? "----" : pinCode, style: const TextStyle(color: AppTheme.accentCyan, fontSize: 32, letterSpacing: 8, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
-                  // Matching Staff Info
-                  if (selectedRegNo != null)
+              content: SizedBox(
+                width: 320,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("Enter ID Number", style: TextStyle(color: Colors.white70, fontSize: 16)),
+                    const SizedBox(height: 15),
                     Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: AppTheme.accentEmerald.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
-                      child: Text("Selected: ${_cachedStaffs.firstWhere((s) => s['register_no'] == selectedRegNo, orElse: () => {'name': ''})['name']}", style: const TextStyle(color: AppTheme.accentEmerald, fontWeight: FontWeight.bold)),
-                    )
-                  else if (matchedStaffs.isNotEmpty && pinCode.isNotEmpty)
-                    SizedBox(
-                      height: 60,
-                      child: ListView.builder(
-                        itemCount: matchedStaffs.length > 2 ? 2 : matchedStaffs.length,
-                        itemBuilder: (c, i) => ListTile(
-                          dense: true,
-                          title: Text("${matchedStaffs[i]['name']} (${matchedStaffs[i]['register_no']})", style: const TextStyle(color: Colors.white)),
-                          onTap: () {
-                            setDialogState(() {
-                              selectedRegNo = matchedStaffs[i]['register_no'];
-                            });
-                          },
-                        ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: AppTheme.bgColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.accentCyan.withOpacity(0.5), width: 2),
                       ),
-                    )
-                  else if (pinCode.isNotEmpty)
-                    const Text("No exact match found", style: TextStyle(color: Colors.redAccent)),
-                  const SizedBox(height: 15),
-                  SizedBox(
-                    width: 250,
-                    child: GridView.count(
-                      crossAxisCount: 3,
-                      shrinkWrap: true,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: 1.2,
-                      physics: const NeverScrollableScrollPhysics(),
-                      children: [
-                        for (var i = 1; i <= 9; i++)
-                          ElevatedButton(
-                            onPressed: () => setDialogState(() {
-                              pinCode += i.toString();
-                              selectedRegNo = null; // reset selection on new digit
-                            }),
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.white10, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                            child: Text(i.toString(), style: const TextStyle(fontSize: 24, color: Colors.white)),
-                          ),
-                        ElevatedButton(
-                          onPressed: () => setDialogState(() {
-                            if (pinCode.isNotEmpty) pinCode = pinCode.substring(0, pinCode.length - 1);
-                            selectedRegNo = null;
-                          }),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent.withOpacity(0.5), padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                          child: const Icon(Icons.backspace, color: Colors.white),
-                        ),
-                        ElevatedButton(
-                          onPressed: () => setDialogState(() {
-                            pinCode += '0';
-                            selectedRegNo = null;
-                          }),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.white10, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                          child: const Text('0', style: TextStyle(fontSize: 24, color: Colors.white)),
-                        ),
-                        ElevatedButton(
-                          onPressed: () => setDialogState(() {
-                            pinCode = "";
-                            selectedRegNo = null;
-                          }),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent.withOpacity(0.5), padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                          child: const Icon(Icons.clear, color: Colors.white),
-                        ),
-                      ],
+                      child: Text(
+                        pinCode.isEmpty ? "----" : pinCode,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppTheme.accentCyan, fontSize: 36, letterSpacing: 12, fontWeight: FontWeight.bold),
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 15),
+                    // Matching Staff Info
+                    if (selectedRegNo != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.person_outline, color: Colors.white, size: 28),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _cachedStaffs.firstWhere((s) => s['register_no'] == selectedRegNo, orElse: () => {'name': ''})['name']?.toString() ?? '',
+                                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                                  ),
+                                  Text("ID: $selectedRegNo", style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.check_circle, color: AppTheme.accentCyan, size: 20),
+                          ],
+                        ),
+                      )
+                    else if (matchedStaffs.isNotEmpty && pinCode.isNotEmpty)
+                      SizedBox(
+                        height: 60,
+                        child: ListView.builder(
+                          itemCount: matchedStaffs.length > 2 ? 2 : matchedStaffs.length,
+                          itemBuilder: (c, i) => ListTile(
+                            dense: true,
+                            title: Text("${matchedStaffs[i]['name']} (${matchedStaffs[i]['register_no']})", style: const TextStyle(color: Colors.white)),
+                            onTap: () {
+                              setDialogState(() {
+                                selectedRegNo = matchedStaffs[i]['register_no'];
+                              });
+                            },
+                          ),
+                        ),
+                      )
+                    else if (pinCode.isNotEmpty)
+                      const Text("No exact match found", style: TextStyle(color: Colors.redAccent)),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: 280,
+                      child: GridView.count(
+                        crossAxisCount: 3,
+                        shrinkWrap: true,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                        childAspectRatio: 1.3,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: [
+                          for (var i = 1; i <= 9; i++)
+                            InkWell(
+                              onTap: () => setDialogState(() {
+                                pinCode += i.toString();
+                                selectedRegNo = null; // reset selection on new digit
+                              }),
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.05),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.white12),
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(i.toString(), style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.w500)),
+                              ),
+                            ),
+                          InkWell(
+                            onTap: () => setDialogState(() {
+                              if (pinCode.isNotEmpty) pinCode = pinCode.substring(0, pinCode.length - 1);
+                              selectedRegNo = null;
+                            }),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+                              ),
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.backspace_outlined, color: Colors.redAccent, size: 28),
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () => setDialogState(() {
+                              pinCode += '0';
+                              selectedRegNo = null;
+                            }),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.white12),
+                              ),
+                              alignment: Alignment.center,
+                              child: const Text('0', style: TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.w500)),
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () => setDialogState(() {
+                              pinCode = "";
+                              selectedRegNo = null;
+                            }),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.orangeAccent.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                              ),
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.clear, color: Colors.orangeAccent, size: 32),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(

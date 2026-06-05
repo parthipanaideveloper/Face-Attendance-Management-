@@ -626,9 +626,9 @@ class DashboardScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(value, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+                Text(value, style: const TextStyle(color: Colors.black, fontSize: 26, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text(title, style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
+                Text(title, style: const TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.w500)),
               ],
             ),
             Container(

@@ -3,6 +3,7 @@ import 'package:camera/camera.dart';
 import 'package:staff_attendance_app/features/attendance/home_screen.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/core/widgets/activation_screen.dart';
 import 'package:staff_attendance_app/core/widgets/app_expired_screen.dart';
 import 'package:staff_attendance_app/services/ml_service.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -52,19 +53,24 @@ Future<void> main() async {
       isExpired = DateTime.now().isAfter(expiryTime);
   }
 
-  runApp(ProviderScope(child: AttendanceApp(isExpired: isExpired)));
+  bool isActivated = prefs.getBool('is_activated') ?? false;
+
+  runApp(ProviderScope(child: AttendanceApp(isExpired: isExpired, isActivated: isActivated)));
 }
 
 class AttendanceApp extends StatelessWidget {
   final bool isExpired;
-  const AttendanceApp({super.key, required this.isExpired});
+  final bool isActivated;
+  const AttendanceApp({super.key, required this.isExpired, required this.isActivated});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Smart Attendance',
       theme: AppTheme.darkTheme,
-      home: isExpired ? const AppExpiredScreen() : const HomeScreen(),
+      home: isExpired 
+          ? const AppExpiredScreen() 
+          : (!isActivated ? const ActivationScreen() : const HomeScreen()),
       debugShowCheckedModeBanner: false,
     );
   }
