@@ -70,72 +70,80 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     showDialog(
       context: context,
       builder: (context) {
-        String? selectedRegNo;
+        Set<String> selectedRegNos = {};
+        String searchQuery = "";
         String status = 'Present';
         TimeOfDay? inTime;
         TimeOfDay? outTime;
 
         return StatefulBuilder(
-          builder: (context, setStateDialog) => AlertDialog(
-            backgroundColor: AppTheme.cardColor,
-            title: const Text("Manual Attendance Entry", style: TextStyle(color: AppTheme.accentCyan)),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Autocomplete<Map<String, dynamic>>(
-                    displayStringForOption: (option) => "${option['name']} (${option['register_no']})",
-                    optionsBuilder: (TextEditingValue textEditingValue) {
-                      if (textEditingValue.text.isEmpty) {
-                        return staffs;
-                      }
-                      final query = textEditingValue.text.toLowerCase();
-                      return staffs.where((s) {
-                        final name = s['name'].toString().toLowerCase();
-                        final regNo = s['register_no'].toString().toLowerCase();
-                        return name.contains(query) || regNo.contains(query);
-                      });
-                    },
-                    onSelected: (option) {
-                      setStateDialog(() => selectedRegNo = option['register_no'] as String);
-                    },
-                    fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                      return TextFormField(
-                        controller: textEditingController,
-                        focusNode: focusNode,
+          builder: (context, setStateDialog) {
+            final filteredStaffs = staffs.where((s) {
+              final name = (s['name'] ?? '').toString().toLowerCase();
+              final regNo = (s['register_no'] ?? '').toString().toLowerCase();
+              return name.contains(searchQuery.toLowerCase()) || regNo.contains(searchQuery.toLowerCase());
+            }).toList();
+
+            return AlertDialog(
+              backgroundColor: AppTheme.cardColor,
+              title: const Text("Bulk Manual Attendance", style: TextStyle(color: AppTheme.accentCyan)),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
                         style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
-                          labelText: "Search Employee (Name or ID)",
-                          labelStyle: TextStyle(color: Colors.white54),
-                          suffixIcon: Icon(Icons.search, color: Colors.white54),
+                        decoration: InputDecoration(
+                          labelText: "Search Staff",
+                          labelStyle: const TextStyle(color: Colors.white54),
+                          prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          filled: true,
+                          fillColor: AppTheme.bgColor,
                         ),
-                      );
-                    },
-                    optionsViewBuilder: (context, onSelected, options) {
-                      return Align(
-                        alignment: Alignment.topLeft,
-                        child: Material(
-                          color: AppTheme.cardColor,
-                          elevation: 4.0,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxHeight: 200, maxWidth: 300),
-                            child: ListView.builder(
-                              padding: EdgeInsets.zero,
-                              itemCount: options.length,
-                              itemBuilder: (BuildContext context, int index) {
-                                final option = options.elementAt(index);
-                                return ListTile(
-                                  title: Text("${option['name']} (${option['register_no']})", style: const TextStyle(color: Colors.white)),
-                                  onTap: () => onSelected(option),
-                                );
-                              },
-                            ),
+                        onChanged: (val) => setStateDialog(() => searchQuery = val),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton(
+                            onPressed: () => setStateDialog(() => selectedRegNos.addAll(filteredStaffs.map((s) => s['register_no'] as String))),
+                            child: const Text("Select All", style: TextStyle(color: AppTheme.accentCyan)),
                           ),
+                          TextButton(
+                            onPressed: () => setStateDialog(() => selectedRegNos.clear()),
+                            child: const Text("Clear All", style: TextStyle(color: Colors.redAccent)),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        height: 200,
+                        decoration: BoxDecoration(border: Border.all(color: Colors.white10), borderRadius: BorderRadius.circular(8)),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: filteredStaffs.length,
+                          itemBuilder: (c, i) {
+                            final s = filteredStaffs[i];
+                            final regNo = s['register_no'] as String;
+                            return CheckboxListTile(
+                              dense: true,
+                              value: selectedRegNos.contains(regNo),
+                              onChanged: (val) => setStateDialog(() {
+                                if (val == true) selectedRegNos.add(regNo);
+                                else selectedRegNos.remove(regNo);
+                              }),
+                              title: Text(s['name'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                              subtitle: Text(regNo, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                              activeColor: AppTheme.accentCyan,
+                              checkColor: Colors.black,
+                              side: const BorderSide(color: Colors.white54),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
+                      ),
+                      const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     value: status,
                     decoration: const InputDecoration(labelText: "Status", labelStyle: TextStyle(color: Colors.white54)),
@@ -166,27 +174,32 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 ],
               ),
             ),
+            ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentEmerald),
                 onPressed: () async {
-                  if (selectedRegNo == null) return;
+                  if (selectedRegNos.isEmpty) return;
                   String dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now()); // Default to today
                   String inStr = inTime != null ? inTime!.format(context) : '';
                   String outStr = outTime != null ? outTime!.format(context) : '';
                   
-                  await db.logManualAttendance(selectedRegNo!, dateStr, status, inStr, outStr);
+                  for (var reg in selectedRegNos) {
+                    await db.logManualAttendance(reg, dateStr, status, inStr, outStr);
+                  }
+                  
                   if (mounted) {
                     Navigator.pop(context);
                     _fetchReports();
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Manual entry saved!")));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Manual entry saved for ${selectedRegNos.length} staff(s)!")));
                   }
                 },
                 child: const Text("Save", style: TextStyle(color: Colors.white)),
               ),
             ],
-          ),
+          );
+        },
         );
       },
     );

@@ -20,6 +20,9 @@ class SimSmsService {
   /// [phoneNumber] is the mobile number to send to.
   /// [message] is the text content to send.
   static Future<bool> sendSms(String phoneNumber, String message) async {
+    debugPrint("[SimSMS] SMS is temporarily disabled for testing. Would have sent: \$message");
+    return true;
+
     bool hasPermission = await requestPermissions();
     if (!hasPermission) {
       debugPrint("[SimSMS] SMS Permission Denied.");

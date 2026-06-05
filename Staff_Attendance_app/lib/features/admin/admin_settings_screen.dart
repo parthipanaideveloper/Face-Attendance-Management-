@@ -11,6 +11,8 @@ import 'package:intl/intl.dart';
 import 'package:staff_attendance_app/core/widgets/footer_widget.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/features/admin/mismatch_images_screen.dart' as staff_attendance_app_mismatch;
 import 'package:share_plus/share_plus.dart';
 import 'dart:convert';
 
@@ -189,6 +191,34 @@ class AdminSettingsScreen extends ConsumerWidget {
           ListTile(
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.cloud_download, color: Colors.blueAccent),
+            title: const Text("Sync Data from Firebase", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: const Text("One-time sync to download all staff to local DB", style: TextStyle(color: Colors.white54)),
+            trailing: const Icon(Icons.sync, color: Colors.blueAccent),
+            onTap: () async {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => const Center(child: CircularProgressIndicator()),
+              );
+              try {
+                final db = ref.read(databaseProvider);
+                await db.syncFromFirebase();
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sync Complete! All data is now locally stored."), backgroundColor: AppTheme.accentEmerald));
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Sync Failed: ${e.toString()}"), backgroundColor: Colors.redAccent));
+                }
+              }
+            },
+          ),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.download, color: AppTheme.accentCyan),
             title: const Text("Export Database Backup", style: TextStyle(color: Colors.white)),
             onTap: () {
@@ -259,6 +289,18 @@ class AdminSettingsScreen extends ConsumerWidget {
               final db = ref.read(databaseProvider);
               await db.deleteAllStaffs();
             }),
+          ),
+          const SizedBox(height: 10),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.image, color: Colors.blueAccent),
+            title: const Text("View Mismatch Images", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: const Text("View, share, or delete captured mismatch photos", style: TextStyle(color: Colors.white54)),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.blueAccent, size: 16),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const staff_attendance_app_mismatch.MismatchImagesScreen()));
+            },
           ),
           const SizedBox(height: 30),
           const Text("Security Settings", style: TextStyle(color: AppTheme.accentCyan, fontSize: 18, fontWeight: FontWeight.bold)),

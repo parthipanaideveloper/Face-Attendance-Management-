@@ -11,6 +11,7 @@ import 'package:staff_attendance_app/features/admin/employee_management_screen.d
 import 'package:staff_attendance_app/features/admin/zone_dashboard_screen.dart';
 import 'package:staff_attendance_app/features/admin/admin_schedule_screen.dart';
 import 'package:staff_attendance_app/features/admin/lop_management_screen.dart';
+import 'package:staff_attendance_app/features/admin/dashboard_staff_list_screen.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:staff_attendance_app/core/providers/db_provider.dart';
 import 'package:intl/intl.dart';
@@ -28,97 +29,207 @@ import 'package:staff_attendance_app/features/admin/admin_auth_screen.dart';
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
-  void _openChartScreen(BuildContext context, List<Map<String, int>> weeklyData, Map<String, dynamic> analytics) {
+  void _openChartScreen(BuildContext context, Map<String, dynamic> weeklyData, Map<String, dynamic> analytics) {
     Navigator.push(context, MaterialPageRoute(builder: (context) {
-      int total = analytics['total_staffs'] ?? 0;
-      double maxY = total.toDouble();
-      if (maxY < 6) maxY = 6.0;
+      List<Map<String, double>> teachingData = (weeklyData['teaching'] as List).cast<Map<String, double>>();
+      List<Map<String, double>> nonTeachingData = (weeklyData['non_teaching'] as List).cast<Map<String, double>>();
+      
+      Map<String, dynamic> presentGender = analytics['present_gender'] ?? {'Male': 0, 'Female': 0};
+      int maleCount = presentGender['Male'] ?? 0;
+      int femaleCount = presentGender['Female'] ?? 0;
+      int totalGender = maleCount + femaleCount;
+      double malePct = totalGender > 0 ? (maleCount / totalGender) * 100 : 0.0;
+      double femalePct = totalGender > 0 ? (femaleCount / totalGender) * 100 : 0.0;
 
       return Scaffold(
         backgroundColor: AppTheme.bgColor,
         appBar: AppBar(
-          title: const Text("Weekly Attendance", style: TextStyle(color: Colors.white)), 
+          title: const Text("Analytical Reports", style: TextStyle(color: Colors.white)), 
           backgroundColor: AppTheme.cardColor,
           iconTheme: const IconThemeData(color: Colors.white),
         ),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 800, maxHeight: 500),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  maxY: maxY,
-                  barTouchData: BarTouchData(enabled: true),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (double value, TitleMeta meta) {
-                          const style = TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 14);
-                          String text;
-                          switch (value.toInt()) {
-                            case 0: text = 'Mon'; break;
-                            case 1: text = 'Tue'; break;
-                            case 2: text = 'Wed'; break;
-                            case 3: text = 'Thu'; break;
-                            case 4: text = 'Fri'; break;
-                            case 5: text = 'Sat'; break;
-                            default: text = ''; break;
-                          }
-                          return Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(text, style: style));
-                        },
-                      ),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true, 
-                        reservedSize: 40,
-                        interval: maxY > 10 ? (maxY / 5).ceilToDouble() : 1,
-                        getTitlesWidget: (double value, TitleMeta meta) {
-                           return Text(value.toInt().toString(), style: const TextStyle(color: Colors.white54, fontSize: 12));
-                        }
-                      ),
-                    ),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  ),
-                  gridData: FlGridData(
-                    show: true, 
-                    drawVerticalLine: false, 
-                    horizontalInterval: maxY > 10 ? (maxY / 5).ceilToDouble() : 1,
-                    getDrawingHorizontalLine: (val) => FlLine(color: Colors.white10, strokeWidth: 1)
-                  ),
-                  borderData: FlBorderData(show: false),
-                  barGroups: List.generate(6, (i) {
-                    return BarChartGroupData(
-                      x: i,
-                      barsSpace: 4, // space between the two rods
-                      barRods: [
-                        BarChartRodData(
-                          toY: (weeklyData[i]['present'] ?? 0).toDouble(),
-                          gradient: const LinearGradient(colors: [AppTheme.accentCyan, AppTheme.accentEmerald], begin: Alignment.bottomCenter, end: Alignment.topCenter),
-                          width: 14,
-                          borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
-                        ),
-                        BarChartRodData(
-                          toY: (weeklyData[i]['absent'] ?? 0).toDouble(),
-                          gradient: const LinearGradient(colors: [Colors.redAccent, Colors.red], begin: Alignment.bottomCenter, end: Alignment.topCenter),
-                          width: 14,
-                          borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
-                        )
-                      ],
-                    );
-                  }),
-                ),
-              ).animate().fadeIn(duration: 600.ms).slideY(begin: 0.2, end: 0, curve: Curves.easeOutCubic),
-            ),
-          ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildSectionTitle("Teaching Staff Attendance (%)", Icons.school, AppTheme.accentCyan),
+              const SizedBox(height: 16),
+              _buildWeeklyChart(teachingData),
+              const SizedBox(height: 40),
+              _buildSectionTitle("Non-Teaching Staff Attendance (%)", Icons.group_work, Colors.orangeAccent),
+              const SizedBox(height: 16),
+              _buildWeeklyChart(nonTeachingData),
+              const SizedBox(height: 40),
+              _buildSectionTitle("Today's Gender Distribution (%)", Icons.pie_chart, Colors.purpleAccent),
+              const SizedBox(height: 16),
+              _buildGenderChart(malePct, femalePct),
+            ],
+          ).animate().fadeIn(duration: 600.ms).slideY(begin: 0.2, end: 0, curve: Curves.easeOutCubic),
         ),
       );
     }));
+  }
+
+  Widget _buildSectionTitle(String title, IconData icon, Color color) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 28),
+        const SizedBox(width: 12),
+        Text(title, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+
+  Widget _buildWeeklyChart(List<Map<String, double>> data) {
+    return Container(
+      height: 300,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: BarChart(
+        BarChartData(
+          alignment: BarChartAlignment.spaceAround,
+          maxY: 100.0,
+          barTouchData: BarTouchData(
+            enabled: true,
+            touchTooltipData: BarTouchTooltipData(
+              getTooltipColor: (group) => Colors.black87,
+              getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                return BarTooltipItem('${rod.toY.toStringAsFixed(1)}%', const TextStyle(color: Colors.white));
+              }
+            )
+          ),
+          titlesData: FlTitlesData(
+            show: true,
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (double value, TitleMeta meta) {
+                  const style = TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 14);
+                  String text;
+                  switch (value.toInt()) {
+                    case 0: text = 'Mon'; break;
+                    case 1: text = 'Tue'; break;
+                    case 2: text = 'Wed'; break;
+                    case 3: text = 'Thu'; break;
+                    case 4: text = 'Fri'; break;
+                    case 5: text = 'Sat'; break;
+                    default: text = ''; break;
+                  }
+                  return Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(text, style: style));
+                },
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true, 
+                reservedSize: 40,
+                interval: 20,
+                getTitlesWidget: (double value, TitleMeta meta) {
+                   return Text('${value.toInt()}%', style: const TextStyle(color: Colors.white54, fontSize: 12));
+                }
+              ),
+            ),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          gridData: FlGridData(
+            show: true, 
+            drawVerticalLine: false, 
+            horizontalInterval: 20,
+            getDrawingHorizontalLine: (val) => FlLine(color: Colors.white10, strokeWidth: 1)
+          ),
+          borderData: FlBorderData(show: false),
+          barGroups: List.generate(6, (i) {
+            return BarChartGroupData(
+              x: i,
+              barsSpace: 4,
+              barRods: [
+                BarChartRodData(
+                  toY: data[i]['present'] ?? 0.0,
+                  gradient: const LinearGradient(colors: [AppTheme.accentCyan, AppTheme.accentEmerald], begin: Alignment.bottomCenter, end: Alignment.topCenter),
+                  width: 14,
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
+                ),
+                BarChartRodData(
+                  toY: data[i]['absent'] ?? 0.0,
+                  gradient: const LinearGradient(colors: [Colors.redAccent, Colors.red], begin: Alignment.bottomCenter, end: Alignment.topCenter),
+                  width: 14,
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
+                )
+              ],
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGenderChart(double malePct, double femalePct) {
+    return Container(
+      height: 300,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: PieChart(
+              PieChartData(
+                sectionsSpace: 4,
+                centerSpaceRadius: 50,
+                sections: [
+                  PieChartSectionData(
+                    color: Colors.blueAccent,
+                    value: malePct,
+                    title: '${malePct.toStringAsFixed(1)}%',
+                    radius: 60,
+                    titleStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  PieChartSectionData(
+                    color: Colors.pinkAccent,
+                    value: femalePct,
+                    title: '${femalePct.toStringAsFixed(1)}%',
+                    radius: 60,
+                    titleStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 1,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLegend("Male", Colors.blueAccent),
+                const SizedBox(height: 16),
+                _buildLegend("Female", Colors.pinkAccent),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegend(String label, Color color) {
+    return Row(
+      children: [
+        Container(width: 16, height: 16, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.bold)),
+      ],
+    );
   }
 
   void _showAssignClassDialog(BuildContext context, WidgetRef ref) async {
@@ -346,14 +457,36 @@ class DashboardScreen extends ConsumerWidget {
           // Stats row
           statsAsync.when(
             data: (stats) {
-              return Row(
+              return Column(
                 children: [
-                  Expanded(child: _buildStatCard("Total Staff", stats['total_staffs'].toString(), Icons.people, AppTheme.accentCyan)),
-                  const SizedBox(width: 10),
-                  Expanded(child: _buildStatCard("Present Today", stats['present_today'].toString(), Icons.check_circle, AppTheme.accentEmerald)),
-                  const SizedBox(width: 10),
-                  Expanded(child: _buildStatCard("Absent Today", stats['absent_today'].toString(), Icons.cancel, Colors.redAccent)),
-                ],
+                  Row(
+                    children: [
+                      Expanded(child: _buildStatCard("Total Staff", stats['total_staffs'].toString(), Icons.people, AppTheme.accentCyan, () {
+                        final db = ref.read(databaseProvider);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => DashboardStaffListScreen(title: "Total Staffs", staffsFuture: db.getAllStaffs())));
+                      })),
+                      const SizedBox(width: 10),
+                      Expanded(child: _buildStatCard("Late Entries", (stats['late_today'] ?? 0).toString(), Icons.access_time_filled, Colors.orangeAccent, () {
+                        final db = ref.read(databaseProvider);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => DashboardStaffListScreen(title: "Late Entries Today", staffsFuture: db.getTodayLateStaffs())));
+                      })),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: _buildStatCard("Present Today", stats['present_today'].toString(), Icons.check_circle, AppTheme.accentEmerald, () {
+                        final db = ref.read(databaseProvider);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => DashboardStaffListScreen(title: "Present Today", staffsFuture: db.getTodayPresentStaffs())));
+                      })),
+                      const SizedBox(width: 10),
+                      Expanded(child: _buildStatCard("Absent Today", stats['absent_today'].toString(), Icons.cancel, Colors.redAccent, () {
+                        final db = ref.read(databaseProvider);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => DashboardStaffListScreen(title: "Absent Today", staffsFuture: db.getTodayAbsentStaffs())));
+                      })),
+                    ],
+                  ),
+                ]
               ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1, end: 0);
             },
             loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.accentCyan)),
@@ -373,14 +506,24 @@ class DashboardScreen extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
-                Row(
+                Column(
                   children: [
-                    Expanded(child: _buildStatCard("Total Staff", "--", Icons.people, AppTheme.accentCyan)),
-                    const SizedBox(width: 10),
-                    Expanded(child: _buildStatCard("Present Today", "--", Icons.check_circle, AppTheme.accentEmerald)),
-                    const SizedBox(width: 10),
-                    Expanded(child: _buildStatCard("Absent Today", "--", Icons.cancel, Colors.redAccent)),
-                  ],
+                    Row(
+                      children: [
+                        Expanded(child: _buildStatCard("Total Staff", "--", Icons.people, AppTheme.accentCyan, null)),
+                        const SizedBox(width: 10),
+                        Expanded(child: _buildStatCard("Late Entries", "--", Icons.access_time_filled, Colors.orangeAccent, null)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: _buildStatCard("Present Today", "--", Icons.check_circle, AppTheme.accentEmerald, null)),
+                        const SizedBox(width: 10),
+                        Expanded(child: _buildStatCard("Absent Today", "--", Icons.cancel, Colors.redAccent, null)),
+                      ],
+                    ),
+                  ]
                 ),
               ],
             ),
@@ -464,22 +607,37 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [color.withOpacity(0.2), color.withOpacity(0.05)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 12),
-          Text(value, style: const TextStyle(color: Colors.black, fontSize: 32, fontWeight: FontWeight.bold)),
-          Text(title, style: TextStyle(color: Colors.black87, fontSize: 14)),
-        ],
+  Widget _buildStatCard(String title, String value, IconData icon, Color color, VoidCallback? onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [color.withOpacity(0.2), color.withOpacity(0.05)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(value, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(title, style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
+              ],
+            ),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
+              child: Icon(icon, color: color, size: 28),
+            ),
+          ],
+        ),
       ),
     );
   }

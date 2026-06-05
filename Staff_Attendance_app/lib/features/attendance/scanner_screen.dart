@@ -15,6 +15,8 @@ import 'package:staff_attendance_app/database/db_helper.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:staff_attendance_app/core/providers/db_provider.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:image/image.dart' as img;
 class ScannerScreen extends ConsumerStatefulWidget {
   const ScannerScreen({super.key});
   @override
@@ -41,6 +43,12 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
 
   List<Map<String, dynamic>> _cachedStaffs = [];
   bool _embeddingsLoaded = false;
+  CameraImage? _lastImage;
+  bool _isSavingImage = false;
+  String? _mismatchCorrectionRegNo;
+  bool _isSuccessCancelled = false;
+  bool _isDialogVisible = false;
+  int _overrideCountdown = 0;
 
   @override
   void initState() {
@@ -156,11 +164,12 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     if (_controller == null || !_controller!.value.isInitialized) return;
     
     _controller!.startImageStream((CameraImage image) async {
-      if (_isProcessing) return;
+      _lastImage = image;
+      if (_isProcessing || _isDialogVisible || _overrideCountdown > 0) return;
       
-      // Throttle processing to max ~3 frames per second to keep UI buttery smooth
+      // Throttle processing to max ~1.5 frames per second to keep UI buttery smooth
       final now = DateTime.now();
-      if (now.difference(_lastProcessTime).inMilliseconds < 300) return;
+      if (now.difference(_lastProcessTime).inMilliseconds < 600) return;
       
       _isProcessing = true;
       _lastProcessTime = now;
@@ -253,6 +262,44 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
       final db = ref.read(databaseProvider);
       if (!_embeddingsLoaded) return;
       
+      if (_mismatchCorrectionRegNo != null) {
+        // OVERRIDE LOGIC: Verify the face against the selected PIN's database embedding
+        final overrideRegNo = _mismatchCorrectionRegNo!;
+        final staff = _cachedStaffs.firstWhere((s) => s['register_no'] == overrideRegNo, orElse: () => <String, dynamic>{});
+        if (staff.isNotEmpty) {
+          final staffName = staff['name'] ?? 'Unknown';
+          List<List<double>> staffEmbeddings = staff['parsed_embeddings'] ?? [];
+          
+          double minDistance = 999.0;
+          for (var dbEmbedding in staffEmbeddings) {
+            double distance = MLService().euclideanDistance(embedding, dbEmbedding);
+            if (distance < minDistance) {
+              minDistance = distance;
+            }
+          }
+
+          // Use a slightly relaxed threshold for manual PIN entry (0.75) compared to strict 0.65
+          if (minDistance < 0.75) {
+            setState(() { _mismatchCorrectionRegNo = null; });
+            _showPendingSuccess(staff, staffName);
+            return;
+          } else {
+            // Unregistered or completely unmatched face
+            setState(() { 
+              _mismatchCorrectionRegNo = null; 
+              _statusText = "Face Not Matched"; 
+            });
+            await Future.delayed(const Duration(seconds: 2));
+            if (mounted) {
+              setState(() { _challengePassed = false; _livenessStep = 0; });
+              _isProcessing = false;
+            }
+            return;
+          }
+        }
+
+      }
+      
       String? recognizedRegNo;
       String? recognizedName;
       double minDistance = 999.0;
@@ -276,8 +323,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
 
       if (recognizedRegNo != null) {
         final staff = _cachedStaffs.firstWhere((s) => s['register_no'] == recognizedRegNo);
-        final result = await db.logAttendance(recognizedRegNo, recognizedName!, staff['dept']);
-        _showSuccessQuick(staff, recognizedName, result['marked_type']);
+        _showPendingSuccess(staff, recognizedName!);
       } else {
         setState(() { _statusText = "Face not recognized."; });
         // Minimal delay so we can re-scan quickly
@@ -301,16 +347,17 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
 
   Map<String, dynamic>? _successStaff;
 
-  void _showSuccessQuick(Map<String, dynamic> staff, String name, String? markedType) async {
+  void _showPendingSuccess(Map<String, dynamic> staff, String name) async {
+    _isSuccessCancelled = false;
     _loadLiveStats(); 
     
-    String pronounceName = name.replaceAll(RegExp(r'[^a-zA-Z\s]'), ' '); // Remove dots so it reads as words
+    String pronounceName = name.replaceAll(RegExp(r'[^a-zA-Z\s]'), ' ').toLowerCase(); 
     String registerNo = staff['register_no'] ?? '';
     
     if (registerNo.toUpperCase().startsWith('SMSNS')) {
-      _flutterTts.speak("Nandri $pronounceName");
+      _flutterTts.speak("Confirming $pronounceName in 5 seconds");
     } else {
-      _flutterTts.speak("Thank you $pronounceName, Marked $markedType");
+      _flutterTts.speak("Confirming $pronounceName in 5 seconds");
     }
     
     setState(() {
@@ -318,16 +365,28 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
       _successName = name;
       _successStaff = staff;
       _countdown = 5;
-      _statusText = "Marked $markedType";
+      _statusText = "Confirming Entry...";
     });
 
     for (int i = 5; i > 0; i--) {
-      if (!mounted) return;
+      if (!mounted || _isSuccessCancelled) return;
       setState(() { _countdown = i; });
       await Future.delayed(const Duration(seconds: 1));
     }
     
+    if (!mounted || _isSuccessCancelled) return;
+
+    // Log attendance NOW after the delay
+    final db = ref.read(databaseProvider);
+    final result = await db.logAttendance(registerNo, name, staff['dept'] ?? '');
+    
     if (mounted) {
+      if (registerNo.toUpperCase().startsWith('SMSNS')) {
+        _flutterTts.speak("Nandri $pronounceName");
+      } else {
+        _flutterTts.speak("Marked ${result['marked_type']}");
+      }
+      
       setState(() {
         _scanSuccess = false;
         _challengePassed = false;
@@ -338,6 +397,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
         _faceRect = null;
       });
       _isProcessing = false;
+      _loadLiveStats();
     }
   }
 
@@ -366,6 +426,286 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     _controller?.dispose();
     _idleTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _saveMismatchImage(CameraImage? imageToSave, String detectedName, String actualName) async {
+    if (imageToSave == null || _isSavingImage) return;
+    setState(() { _isSavingImage = true; });
+    
+    try {
+      final img.Image convertedImage = _convertYUV420ToImage(imageToSave);
+      img.Image finalImage = convertedImage;
+      if (convertedImage.width > 640) {
+        finalImage = img.copyResize(convertedImage, width: 640);
+      }
+      
+      final directory = await getApplicationDocumentsDirectory();
+      final folderPath = '${directory.path}/Mismatch_Images';
+      final folder = Directory(folderPath);
+      if (!(await folder.exists())) {
+        await folder.create(recursive: true);
+      }
+      
+      String safeDetected = detectedName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+      String safeActual = actualName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+      final String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final String filePath = '$folderPath/mismatch_Detected_${safeDetected}_Actual_${safeActual}_$timestamp.jpg';
+      
+      final File file = File(filePath);
+      await file.writeAsBytes(img.encodeJpg(finalImage, quality: 50));
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Mismatch Image Saved!\nPath: $filePath", style: const TextStyle(fontSize: 12)),
+          backgroundColor: AppTheme.accentEmerald,
+          duration: const Duration(seconds: 4),
+        ));
+      }
+    } catch (e) {
+      print("Error saving image: ${e.toString()}");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Error saving image: ${e.toString()}"),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() { _isSavingImage = false; });
+    }
+  }
+
+  void _showMismatchCorrectionDialog() {
+    _isSuccessCancelled = true; // Instantly cancel any pending wrong attendance
+    _isDialogVisible = true;
+    final CameraImage? frozenImage = _lastImage;
+    final String wronglyDetectedName = _successName ?? 'Unknown';
+    
+    setState(() { 
+      _isIdle = true; 
+      _scanSuccess = false; // Hide success overlay so dialog is visible
+    }); 
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        String? selectedRegNo;
+        String pinCode = "";
+        
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            List<Map<String, dynamic>> matchedStaffs = [];
+            if (pinCode.isNotEmpty) {
+              matchedStaffs = _cachedStaffs.where((s) => (s['register_no'] ?? '').toString().contains(pinCode)).toList();
+              // Auto-select if there is exactly 1 match and pinCode has at least 2 digits
+              if (matchedStaffs.length == 1 && pinCode.length >= 2 && selectedRegNo == null) {
+                selectedRegNo = matchedStaffs.first['register_no'];
+              }
+            }
+
+            return AlertDialog(
+              backgroundColor: AppTheme.cardColor,
+              title: const Text("Correct Mismatch", style: TextStyle(color: Colors.white)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("Enter your ID number to verify mismatch:", style: TextStyle(color: Colors.white70)),
+                  const SizedBox(height: 10),
+                  Text(pinCode.isEmpty ? "----" : pinCode, style: const TextStyle(color: AppTheme.accentCyan, fontSize: 32, letterSpacing: 8, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  // Matching Staff Info
+                  if (selectedRegNo != null)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: AppTheme.accentEmerald.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                      child: Text("Selected: ${_cachedStaffs.firstWhere((s) => s['register_no'] == selectedRegNo, orElse: () => {'name': ''})['name']}", style: const TextStyle(color: AppTheme.accentEmerald, fontWeight: FontWeight.bold)),
+                    )
+                  else if (matchedStaffs.isNotEmpty && pinCode.isNotEmpty)
+                    SizedBox(
+                      height: 60,
+                      child: ListView.builder(
+                        itemCount: matchedStaffs.length > 2 ? 2 : matchedStaffs.length,
+                        itemBuilder: (c, i) => ListTile(
+                          dense: true,
+                          title: Text("${matchedStaffs[i]['name']} (${matchedStaffs[i]['register_no']})", style: const TextStyle(color: Colors.white)),
+                          onTap: () {
+                            setDialogState(() {
+                              selectedRegNo = matchedStaffs[i]['register_no'];
+                            });
+                          },
+                        ),
+                      ),
+                    )
+                  else if (pinCode.isNotEmpty)
+                    const Text("No exact match found", style: TextStyle(color: Colors.redAccent)),
+                  const SizedBox(height: 15),
+                  SizedBox(
+                    width: 250,
+                    child: GridView.count(
+                      crossAxisCount: 3,
+                      shrinkWrap: true,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: 1.2,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: [
+                        for (var i = 1; i <= 9; i++)
+                          ElevatedButton(
+                            onPressed: () => setDialogState(() {
+                              pinCode += i.toString();
+                              selectedRegNo = null; // reset selection on new digit
+                            }),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.white10, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            child: Text(i.toString(), style: const TextStyle(fontSize: 24, color: Colors.white)),
+                          ),
+                        ElevatedButton(
+                          onPressed: () => setDialogState(() {
+                            if (pinCode.isNotEmpty) pinCode = pinCode.substring(0, pinCode.length - 1);
+                            selectedRegNo = null;
+                          }),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent.withOpacity(0.5), padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                          child: const Icon(Icons.backspace, color: Colors.white),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => setDialogState(() {
+                            pinCode += '0';
+                            selectedRegNo = null;
+                          }),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.white10, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                          child: const Text('0', style: TextStyle(fontSize: 24, color: Colors.white)),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => setDialogState(() {
+                            pinCode = "";
+                            selectedRegNo = null;
+                          }),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent.withOpacity(0.5), padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                          child: const Icon(Icons.clear, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    _isDialogVisible = false;
+                    setState(() { _isIdle = false; });
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentEmerald),
+                  onPressed: selectedRegNo == null ? null : () async {
+                    Navigator.pop(context);
+                    _isDialogVisible = false;
+                    
+                    final String actualName = _cachedStaffs.firstWhere((s) => s['register_no'] == selectedRegNo, orElse: () => {'name': 'Unknown'})['name'] ?? 'Unknown';
+                    // Save the screenshot with both names
+                    _saveMismatchImage(frozenImage, wronglyDetectedName, actualName);
+                    
+                    setState(() { 
+                      _isIdle = false; 
+                      _statusText = "Look at the camera...";
+                      _overrideCountdown = 3;
+                    });
+                    
+                    _flutterTts.speak("Look at the camera");
+                    
+                    for (int i = 3; i > 0; i--) {
+                      if (!mounted) return;
+                      setState(() { _overrideCountdown = i; });
+                      await Future.delayed(const Duration(seconds: 1));
+                    }
+                    
+                    if (!mounted) return;
+                    setState(() {
+                      _mismatchCorrectionRegNo = selectedRegNo;
+                      _overrideCountdown = 0;
+                    });
+                  },
+                  child: const Text("Re-verify & Mark", style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          }
+        );
+      }
+    );
+  }
+
+  img.Image _convertYUV420ToImage(CameraImage cameraImage) {
+    final width = cameraImage.width;
+    final height = cameraImage.height;
+    
+    var imgData = img.Image(width: width, height: height);
+    
+    // Assuming NV21 format for Android or BGRA8888 for iOS
+    if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+      for (int h = 0; h < height; h++) {
+        for (int w = 0; w < width; w++) {
+          final int index = (h * width + w) * 4;
+          final b = cameraImage.planes[0].bytes[index];
+          final g = cameraImage.planes[0].bytes[index + 1];
+          final r = cameraImage.planes[0].bytes[index + 2];
+          imgData.setPixelRgb(w, h, r, g, b);
+        }
+      }
+    } else {
+      // NV21 or YUV420
+      if (cameraImage.planes.length == 1) {
+        final int frameSize = width * height;
+        final bytes = cameraImage.planes[0].bytes;
+        for (int h = 0; h < height; h++) {
+          for (int w = 0; w < width; w++) {
+            final int yIndex = h * width + w;
+            final int uvIndex = frameSize + (h ~/ 2) * width + (w ~/ 2) * 2;
+            
+            int y = 0, u = 128, v = 128;
+            if (yIndex < bytes.length) y = bytes[yIndex];
+            if (uvIndex < bytes.length - 1) {
+              v = bytes[uvIndex];
+              u = bytes[uvIndex + 1];
+            }
+            
+            int r = (y + (1.370705 * (v - 128))).round().clamp(0, 255);
+            int g = (y - (0.337633 * (u - 128)) - (0.698001 * (v - 128))).round().clamp(0, 255);
+            int b = (y + (1.732446 * (u - 128))).round().clamp(0, 255);
+            
+            imgData.setPixelRgb(w, h, r, g, b);
+          }
+        }
+      } else {
+        for (int h = 0; h < height; h++) {
+          for (int w = 0; w < width; w++) {
+            final int yIndex = h * cameraImage.planes[0].bytesPerRow + w;
+            final int uvIndex = (h ~/ 2) * cameraImage.planes[1].bytesPerRow + (w ~/ 2) * 2;
+            
+            int y = 0, u = 128, v = 128;
+            if (yIndex < cameraImage.planes[0].bytes.length) {
+              y = cameraImage.planes[0].bytes[yIndex];
+            }
+            if (uvIndex < cameraImage.planes[1].bytes.length - 1) {
+              v = cameraImage.planes[1].bytes[uvIndex];
+              u = cameraImage.planes[1].bytes[uvIndex + 1];
+            }
+            
+            int r = (y + (1.370705 * (v - 128))).round().clamp(0, 255);
+            int g = (y - (0.337633 * (u - 128)) - (0.698001 * (v - 128))).round().clamp(0, 255);
+            int b = (y + (1.732446 * (u - 128))).round().clamp(0, 255);
+            
+            imgData.setPixelRgb(w, h, r, g, b);
+          }
+        }
+      }
+    }
+    
+    if (cameras.isNotEmpty && cameras.length > 1) {
+      imgData = img.copyRotate(imgData, angle: cameras[1].sensorOrientation);
+    }
+    return imgData;
   }
 
   @override
@@ -518,52 +858,70 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                   ),
                 
                 const Spacer(),
-                if (_scanSuccess)
-                  Align(
-                    alignment: Alignment.bottomCenter,
+                if (_overrideCountdown > 0)
+                  Center(
                     child: Container(
-                      margin: const EdgeInsets.only(bottom: 30, left: 24, right: 24),
-                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                      padding: const EdgeInsets.all(30),
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppTheme.accentCyan, width: 4),
+                      ),
+                      child: Text(
+                        "$_overrideCountdown",
+                        style: const TextStyle(color: AppTheme.accentCyan, fontSize: 60, fontWeight: FontWeight.bold),
+                      ),
+                    ).animate(onPlay: (c) => c.repeat()).scale(duration: 500.ms, curve: Curves.easeInOut),
+                  ),
+                
+                if (_scanSuccess && _successStaff != null)
+                  Align(
+                    alignment: Alignment.center,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 20),
+                      padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(20),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 15)],
+                        boxShadow: [BoxShadow(color: Colors.greenAccent.withOpacity(0.5), blurRadius: 20, spreadRadius: 5)],
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.check_circle, color: AppTheme.accentEmerald, size: 60)
-                              .animate()
-                              .scale(duration: 400.ms, curve: Curves.easeOutBack),
-                          const SizedBox(height: 10),
+                          const Icon(Icons.check_circle, color: Colors.green, size: 80),
+                          const SizedBox(height: 15),
                           Text(
-                            _successName ?? "",
-                            style: const TextStyle(color: Colors.black, fontSize: 22, fontWeight: FontWeight.bold),
+                            _successStaff!['name'] ?? 'Unknown',
                             textAlign: TextAlign.center,
-                          ).animate().fadeIn(delay: 200.ms),
-                          if (_successStaff != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8.0),
-                              child: Text(
-                                "ID: ${_successStaff!['register_no']}",
-                                style: const TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w600),
-                              ),
-                            ).animate().fadeIn(delay: 300.ms),
+                            style: const TextStyle(color: Colors.black87, fontSize: 32, fontWeight: FontWeight.bold),
+                          ),
                           const SizedBox(height: 8),
                           Text(
-                            "Time: ${DateFormat('hh:mm a').format(DateTime.now())}",
-                            style: const TextStyle(color: Colors.black54, fontSize: 16, fontWeight: FontWeight.w500),
-                          ).animate().fadeIn(delay: 400.ms),
+                            _successStaff!['register_no'] ?? '',
+                            style: const TextStyle(color: Colors.black54, fontSize: 24, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 15),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: AppTheme.accentEmerald,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              _statusText,
+                              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
+                          ),
                           const SizedBox(height: 10),
                           Text(
-                            "Auto-refresh in $_countdown...",
-                            style: const TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.bold),
+                            "Countdown: $_countdown",
+                            style: const TextStyle(color: Colors.grey, fontSize: 16),
                           ),
                         ],
                       ),
-                    ),
+                    ).animate().scale(duration: 400.ms, curve: Curves.elasticOut),
                   )
-                else
+                else if (!_scanSuccess)
                   Align(
                     alignment: Alignment.bottomCenter,
                     child: Container(
@@ -589,6 +947,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
               ],
             ),
           ),
+
+          // MISMATCH BUZZER BUTTON
+          if (!_isIdle)
+            Positioned(
+              right: 20,
+              bottom: 120,
+              child: FloatingActionButton(
+                heroTag: "mismatchBuzzer",
+                backgroundColor: Colors.redAccent,
+                onPressed: _showMismatchCorrectionDialog,
+                child: const Icon(Icons.report_problem, color: Colors.white, size: 30),
+              ).animate(onPlay: (c) => c.repeat(reverse: true))
+               .shake(hz: 2, curve: Curves.easeInOut, duration: 1500.ms),
+            ),
 
           // BLACKOUT IDLE SCREEN
           if (_isIdle)

@@ -6,7 +6,7 @@ final dashboardStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async 
   return await db.getDashboardAnalytics();
 });
 
-final dashboardWeeklyProvider = FutureProvider<List<Map<String, int>>>((ref) async {
+final dashboardWeeklyProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final db = ref.watch(databaseProvider);
   return await db.getWeeklyAttendanceCounts();
 });
