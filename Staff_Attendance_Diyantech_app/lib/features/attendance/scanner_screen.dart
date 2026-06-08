@@ -1,0 +1,655 @@
+import 'dart:convert';
+import 'dart:math';
+import 'dart:io';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:camera/camera.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:staff_attendance_app/main.dart';
+import 'package:staff_attendance_app/services/ml_service.dart';
+import 'package:staff_attendance_app/database/db_helper.dart';
+import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:staff_attendance_app/core/providers/db_provider.dart';
+import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:image/image.dart' as img;
+
+class ScannerScreen extends ConsumerStatefulWidget {
+  const ScannerScreen({super.key});
+  @override
+  ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
+}
+
+class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindingObserver {
+  CameraController? _controller;
+  final FlutterTts _flutterTts = FlutterTts();
+  bool _isProcessing = false;
+  bool _faceDetected = false;
+  bool _challengePassed = false;
+  String _statusText = "Align face in the circle";
+  Rect? _faceRect;
+  Size? _imageSize;
+  int _countdown = 0;
+  String? _successName;
+
+  int _totalStaffs = 0;
+  int _presentToday = 0;
+  
+  Timer? _idleTimer;
+  bool _isIdle = false;
+
+  List<Map<String, dynamic>> _cachedStaffs = [];
+  bool _embeddingsLoaded = false;
+  bool _isSavingImage = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadLiveStats();
+    _loadStaffEmbeddings();
+    _initializeCamera();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final CameraController? cameraController = _controller;
+    if (cameraController == null || !cameraController.value.isInitialized) {
+      return;
+    }
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      cameraController.dispose();
+      _controller = null;
+    } else if (state == AppLifecycleState.resumed) {
+      _initializeCamera();
+    }
+  }
+
+  Future<void> _loadLiveStats() async {
+    final db = ref.read(databaseProvider);
+    final stats = await db.getDashboardAnalytics();
+    if (mounted) {
+      setState(() {
+        _totalStaffs = stats['total_staffs'];
+        _presentToday = stats['present_today'];
+      });
+    }
+  }
+
+  Future<void> _loadStaffEmbeddings() async {
+    final db = ref.read(databaseProvider);
+    final staffs = await db.getAllStaffs();
+    
+    for (var staff in staffs) {
+      if (staff['embedding'] != null) {
+        try {
+          var decoded = jsonDecode(staff['embedding']);
+          List<List<double>> parsedEmbeddings = [];
+          if (decoded is List && decoded.isNotEmpty) {
+            if (decoded[0] is List) {
+              for (var emb in decoded) {
+                parsedEmbeddings.add(List<double>.from(emb.map((e) => e.toDouble())));
+              }
+            } else {
+              parsedEmbeddings.add(List<double>.from(decoded.map((e) => e.toDouble())));
+            }
+          }
+          staff['parsed_embeddings'] = parsedEmbeddings;
+        } catch (e) {
+          staff['parsed_embeddings'] = <List<double>>[];
+        }
+      } else {
+        staff['parsed_embeddings'] = <List<double>>[];
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        _cachedStaffs = staffs;
+        _embeddingsLoaded = true;
+      });
+    }
+  }
+
+  Future<void> _initializeCamera() async {
+    if (cameras.isEmpty) return;
+    _controller = CameraController(
+      cameras[1], 
+      ResolutionPreset.low, 
+      enableAudio: false,
+      imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
+    );
+    try {
+      await _controller!.initialize();
+      if (mounted) setState(() {});
+      _startScanning();
+      _flutterTts.speak("Look at the camera");
+    } catch (e) {
+      print("Camera init error: $e");
+    }
+  }
+
+  Future<void> _saveMismatchImage(CameraImage? imageToSave, String detectedName, String actualName) async {
+    if (imageToSave == null || _isSavingImage) return;
+    setState(() { _isSavingImage = true; });
+    
+    try {
+      final img.Image convertedImage = _convertYUV420ToImage(imageToSave);
+      img.Image finalImage = convertedImage;
+      if (convertedImage.width > 640) {
+        finalImage = img.copyResize(convertedImage, width: 640);
+      }
+      
+      final directory = await getApplicationDocumentsDirectory();
+      final folderPath = '${directory.path}/Mismatch_Images';
+      final dir = Directory(folderPath);
+      if (!await dir.exists()) await dir.create(recursive: true);
+      
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final safeDetected = detectedName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+      final safeActual = actualName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+      final String filePath = '$folderPath/mismatch_Detected_${safeDetected}_Actual_${safeActual}_$timestamp.jpg';
+      
+      final File file = File(filePath);
+      await file.writeAsBytes(img.encodeJpg(finalImage, quality: 50));
+    } catch (e) {
+      print("Error saving mismatch: $e");
+    } finally {
+      if (mounted) setState(() { _isSavingImage = false; });
+    }
+  }
+
+  img.Image _convertYUV420ToImage(CameraImage image) {
+    final int width = image.width;
+    final int height = image.height;
+    final img.Image imgObj = img.Image(width: width, height: height);
+    final plane = image.planes[0];
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final int val = plane.bytes[y * plane.bytesPerRow + x];
+        imgObj.setPixelRgba(x, y, val, val, val, 255);
+      }
+    }
+    return imgObj;
+  }
+
+  void _resetIdleTimer(bool faceDetected) {
+    if (faceDetected) {
+      _idleTimer?.cancel();
+      if (_isIdle) {
+        setState(() => _isIdle = false);
+      }
+    } else {
+      if (_idleTimer == null || !_idleTimer!.isActive) {
+        _idleTimer = Timer(const Duration(seconds: 10), () {
+          if (mounted) {
+            setState(() => _isIdle = true);
+          }
+        });
+      }
+    }
+  }
+
+  int _livenessStep = 0; 
+  List<int> _challengeSequence = [];
+  DateTime? _challengeStartTime;
+
+  DateTime _lastProcessTime = DateTime.now();
+
+  void _startScanning() {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    
+    _controller!.startImageStream((CameraImage image) async {
+      if (_isProcessing) return;
+      
+      final now = DateTime.now();
+      if (now.difference(_lastProcessTime).inMilliseconds < 600) return;
+      
+      _isProcessing = true;
+      _lastProcessTime = now;
+
+      try {
+        final WriteBuffer allBytes = WriteBuffer();
+        for (final Plane plane in image.planes) {
+          allBytes.putUint8List(plane.bytes);
+        }
+        final bytes = allBytes.done().buffer.asUint8List();
+
+        final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
+        final InputImageRotation imageRotation = InputImageRotationValue.fromRawValue(cameras[1].sensorOrientation) ?? InputImageRotation.rotation270deg;
+        final InputImageFormat inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21;
+        
+        final inputImageData = InputImageMetadata(
+          size: imageSize,
+          rotation: imageRotation,
+          format: inputImageFormat,
+          bytesPerRow: image.planes[0].bytesPerRow,
+        );
+        
+        final inputImage = InputImage.fromBytes(bytes: bytes, metadata: inputImageData);
+        final faces = await MLService().detectFacesStream(inputImage);
+        
+        if (faces.isNotEmpty) {
+          final face = faces.first;
+          _resetIdleTimer(true);
+          if (!_faceDetected) {
+            _flutterTts.speak("Look at the camera");
+          }
+          setState(() { 
+            _faceDetected = true; 
+            _statusText = "Identifying..."; 
+            _faceRect = face.boundingBox;
+            // In portrait, camera sensor is usually rotated 90 degrees, so we swap width and height for display mapping
+            final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+            _imageSize = isPortrait 
+                ? Size(image.height.toDouble(), image.width.toDouble())
+                : Size(image.width.toDouble(), image.height.toDouble());
+          });
+
+          // Run attendance processing directly. Spoof check can run asynchronously or be bypassed if speed is top priority
+          await _processAttendance(bytes, image.width, image.height, face);
+        } else {
+          _resetIdleTimer(false);
+          setState(() { 
+            _faceDetected = false; 
+            _statusText = "Align face in view"; 
+            _challengePassed = false; 
+            _faceRect = null;
+          });
+          _isProcessing = false;
+        }
+      } catch (e) {
+        print("Stream error: $e");
+        _isProcessing = false;
+      }
+    });
+  }
+  bool _scanSuccess = false;
+
+  Future<void> _processAttendance(Uint8List bytes, int width, int height, Face face) async {
+    try {
+      // ANTI-SPOOFING LIVENESS CHECK - TEMPORARILY DISABLED FOR PHOTO TESTING
+      /*
+      double? livenessScore = await FaceAntiSpoofingDetector.detect(
+        yuvBytes: bytes,
+        previewWidth: width,
+        previewHeight: height,
+        orientation: cameras[1].sensorOrientation,
+        faceContour: face.boundingBox,
+      );
+
+      // VERY LENIENT threshold (0.40) to prevent rejecting real faces in poor lighting
+      if (livenessScore == null || livenessScore < 0.40) {
+        setState(() { _statusText = "Spoof Detected! Access Denied."; });
+        await Future.delayed(const Duration(milliseconds: 1500));
+        if (mounted) {
+          setState(() { _challengePassed = false; _livenessStep = 0; });
+          _isProcessing = false;
+        }
+        return;
+      }
+      */
+
+      final embedding = await MLService().getEmbeddingFromStream(bytes, width, height, face, cameras[1].sensorOrientation);
+      if (embedding == null) throw Exception("Failed to extract features.");
+      
+      final db = ref.read(databaseProvider);
+      if (!_embeddingsLoaded) return;
+      
+      String? recognizedRegNo;
+      String? recognizedName;
+      double minDistance = 999.0;
+
+      for (var staff in _cachedStaffs) {
+        List<List<double>> staffEmbeddings = staff['parsed_embeddings'] ?? [];
+        if (staffEmbeddings.isEmpty) continue;
+
+        for (var dbEmbedding in staffEmbeddings) {
+          double distance = MLService().euclideanDistance(embedding, dbEmbedding);
+          if (distance < minDistance) {
+            minDistance = distance;
+            // STRICT THRESHOLD (0.65) to prevent false positives and name confusion
+            if (minDistance < 0.65) {
+              recognizedRegNo = staff['register_no'];
+              recognizedName = staff['name'];
+            }
+          }
+        }
+      }
+
+      if (recognizedRegNo != null) {
+        final staff = _cachedStaffs.firstWhere((s) => s['register_no'] == recognizedRegNo);
+        final result = await db.logAttendance(recognizedRegNo, recognizedName!, staff['dept']);
+        _showSuccessQuick(staff, recognizedName, result['marked_type']);
+      } else {
+        setState(() { _statusText = "Face not recognized."; });
+        // Minimal delay so we can re-scan quickly
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          setState(() { _challengePassed = false; _livenessStep = 0; });
+          _isProcessing = false;
+        }
+      }
+    } catch (e) {
+      String errStr = e.toString();
+      if (errStr.length > 100) errStr = errStr.substring(0, 100);
+      setState(() { _statusText = "Err: $errStr"; });
+      await Future.delayed(const Duration(seconds: 1));
+      if (mounted) {
+        setState(() { _challengePassed = false; _livenessStep = 0; });
+        _isProcessing = false;
+      }
+    }
+  }
+
+  Map<String, dynamic>? _successStaff;
+
+  void _showSuccessQuick(Map<String, dynamic> staff, String name, String? markedType) async {
+    _loadLiveStats(); 
+    
+    String pronounceName = name.replaceAll(RegExp(r'[^a-zA-Z\s]'), ' '); // Remove dots so it reads as words
+    String registerNo = staff['register_no'] ?? '';
+    
+    if (registerNo.toUpperCase().startsWith('SMSNS')) {
+      _flutterTts.speak("Nandri $pronounceName");
+    } else {
+      _flutterTts.speak("Thank you $pronounceName, Marked $markedType");
+    }
+    
+    setState(() {
+      _scanSuccess = true;
+      _successName = name;
+      _successStaff = staff;
+      _countdown = 5;
+      _statusText = "Marked $markedType";
+    });
+
+    for (int i = 5; i > 0; i--) {
+      if (!mounted) return;
+      setState(() { _countdown = i; });
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    
+    if (mounted) {
+      setState(() {
+        _scanSuccess = false;
+        _challengePassed = false;
+        _livenessStep = 0;
+        _successName = null;
+        _successStaff = null;
+        _statusText = "Align face in view";
+        _faceRect = null;
+      });
+      _isProcessing = false;
+    }
+  }
+
+  Widget _buildStatBadge(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: RichText(
+        text: TextSpan(
+          children: [
+            TextSpan(text: "$label: ", style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            TextSpan(text: value, style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller?.dispose();
+    _idleTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+
+    Color frameColor = AppTheme.accentCyan;
+    if (_scanSuccess) {
+      frameColor = Colors.blueAccent;
+    } else if (_faceDetected) {
+      frameColor = AppTheme.accentEmerald;
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          // FULL SCREEN CAMERA
+          if (_controller != null && _controller!.value.isInitialized)
+            SizedBox.expand(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: isPortrait 
+                      ? (_controller!.value.previewSize?.height ?? 1)
+                      : (_controller!.value.previewSize?.width ?? 1),
+                  height: isPortrait 
+                      ? (_controller!.value.previewSize?.width ?? 1)
+                      : (_controller!.value.previewSize?.height ?? 1),
+                  child: CameraPreview(_controller!),
+                ),
+              ),
+            )
+          else
+            const Center(child: CircularProgressIndicator(color: AppTheme.accentCyan)),
+            
+          // Face Viewfinder Bounding Box
+          if (!_scanSuccess)
+            Center(
+              child: Container(
+                width: 280,
+                height: 340,
+                decoration: BoxDecoration(
+                  border: Border.all(color: _faceDetected ? Colors.green : Colors.transparent, width: 3),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                clipBehavior: Clip.hardEdge,
+                child: Stack(
+                  children: [
+                    // Scanning Line scoped inside the viewfinder box
+                    if (_isProcessing && _faceDetected)
+                      Container(
+                        height: 4,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          boxShadow: [BoxShadow(color: Colors.green.withOpacity(0.5), blurRadius: 15, spreadRadius: 5)],
+                        ),
+                      ).animate(onPlay: (c) => c.repeat(reverse: true))
+                       .moveY(begin: 0, end: 340, duration: 1500.ms, curve: Curves.easeInOut),
+                  ],
+                ),
+              ),
+            ),
+            
+          // OVERLAY UI
+          SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                // Header (compact)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min, // Hug contents tightly
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Logo removed for Diyantech
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              "Diyantech Solutions Pvt Ltd Attendance", 
+                              style: TextStyle(
+                                color: AppTheme.accentCyan, 
+                                fontSize: 18, 
+                                fontWeight: FontWeight.w800,
+                              ),
+                              textAlign: TextAlign.left,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildStatBadge("Total", _totalStaffs.toString(), Colors.white),
+                          const SizedBox(width: 15),
+                          _buildStatBadge("Present", _presentToday.toString(), AppTheme.accentEmerald),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 30),
+                
+                if (_scanSuccess)
+                  Column(
+                    children: [
+                      const SizedBox(height: 20),
+                      Text(
+                        _statusText, 
+                        style: const TextStyle(
+                          color: AppTheme.accentEmerald, 
+                          fontSize: 28, 
+                          fontWeight: FontWeight.bold,
+                          shadows: [Shadow(color: Colors.black, blurRadius: 10)]
+                        )
+                      ).animate().fadeIn(delay: 100.ms),
+                    ],
+                  )
+                else
+                  Column(
+                    children: [
+                      Icon(Icons.keyboard_double_arrow_up, color: _faceDetected ? Colors.green : frameColor, size: 80)
+                          .animate(onPlay: (c) => c.repeat())
+                          .moveY(begin: 15, end: -15, duration: 800.ms, curve: Curves.easeInOut)
+                          .fade(begin: 0.3, end: 1.0, duration: 800.ms),
+                      const SizedBox(height: 10),
+                      Text(
+                        "Look At The Camera", 
+                        style: TextStyle(
+                          color: Colors.white, 
+                          fontSize: 22, 
+                          fontWeight: FontWeight.bold, 
+                          shadows: [Shadow(color: Colors.black.withOpacity(0.8), blurRadius: 10)]
+                        )
+                      ),
+                    ],
+                  ),
+                
+                const Spacer(),
+                if (_scanSuccess)
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 30, left: 24, right: 24),
+                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 15)],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check_circle, color: AppTheme.accentEmerald, size: 60)
+                              .animate()
+                              .scale(duration: 400.ms, curve: Curves.easeOutBack),
+                          const SizedBox(height: 10),
+                          Text(
+                            _successName ?? "",
+                            style: const TextStyle(color: Colors.black, fontSize: 22, fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center,
+                          ).animate().fadeIn(delay: 200.ms),
+                          if (_successStaff != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
+                              child: Text(
+                                "ID: ${_successStaff!['register_no']}",
+                                style: const TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w600),
+                              ),
+                            ).animate().fadeIn(delay: 300.ms),
+                          const SizedBox(height: 8),
+                          Text(
+                            "Time: ${DateFormat('hh:mm a').format(DateTime.now())}",
+                            style: const TextStyle(color: Colors.black54, fontSize: 16, fontWeight: FontWeight.w500),
+                          ).animate().fadeIn(delay: 400.ms),
+                          const SizedBox(height: 10),
+                          Text(
+                            "Auto-refresh in $_countdown...",
+                            style: const TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 30),
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(color: frameColor, width: 2),
+                      ),
+                      child: Text(
+                        _statusText, 
+                        style: TextStyle(
+                          color: frameColor,
+                          fontSize: 16, 
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ), 
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // BLACKOUT IDLE SCREEN
+          if (_isIdle)
+            AnimatedOpacity(
+              opacity: _isIdle ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 300),
+              child: Container(
+                color: Colors.black,
+                width: double.infinity,
+                height: double.infinity,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

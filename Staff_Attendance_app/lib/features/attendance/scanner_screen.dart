@@ -121,12 +121,31 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
 
   Future<void> _initializeCamera() async {
     if (cameras.isEmpty) return;
+
+    CameraDescription? frontCamera;
+    for (var camera in cameras) {
+      if (camera.lensDirection == CameraLensDirection.front) {
+        frontCamera = camera;
+        break;
+      }
+    }
+    
+    if (frontCamera == null) {
+      if (mounted) {
+        setState(() {
+          _statusText = "No front camera found!";
+        });
+      }
+      return;
+    }
+
     _controller = CameraController(
-      cameras[1], 
+      frontCamera, 
       ResolutionPreset.low, 
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
     );
+
     try {
       await _controller!.initialize();
       if (mounted) setState(() {});
@@ -134,6 +153,19 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
       _flutterTts.speak("Look at the camera");
     } catch (e) {
       print("Camera init error: $e");
+      if (e is CameraException) {
+        if (e.code == 'CameraAccessDenied') {
+          if (mounted) {
+            setState(() {
+              _statusText = "Please enable Camera Permissions";
+            });
+          }
+        } else {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) _initializeCamera();
+          });
+        }
+      }
     }
   }
 
