@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:staff_attendance_app/features/attendance/home_screen.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
-import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:staff_attendance_app/core/widgets/activation_screen.dart';
 import 'package:staff_attendance_app/core/widgets/app_expired_screen.dart';
 import 'package:staff_attendance_app/services/ml_service.dart';
@@ -12,6 +11,10 @@ import 'firebase_options.dart'; // Make sure you have run 'flutterfire configure
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:staff_attendance_app/services/firebase_sync_service.dart';
+import 'package:staff_attendance_app/services/sms_scheduler_service.dart';
+import 'package:staff_attendance_app/services/cloud_kiosk_service.dart'; // NEW
 
 List<CameraDescription> cameras = [];
 
@@ -26,6 +29,9 @@ Future<void> main() async {
       persistenceEnabled: true,
       cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
     );
+    FirebaseSyncService().startSyncListener();
+    SmsSchedulerService().startScheduler();
+    CloudKioskService().initialize(); // NEW
     await MLService().initialize();
   } catch (e) {
     print('Error during initialization: $e');
@@ -37,7 +43,13 @@ Future<void> main() async {
   
   bool isExpired = false;
   
-  if (subscriptionExpiryStr != null) {
+  // Check Remote Lock first
+  bool isRemotelyLocked = prefs.getBool('is_remotely_locked') ?? false;
+  String remoteLockMessage = prefs.getString('remote_lock_message') ?? '';
+
+  if (isRemotelyLocked) {
+      isExpired = true; // Force expired state
+  } else if (subscriptionExpiryStr != null) {
       // Super Admin explicitly set a subscription expiry date
       DateTime expiryDate = DateTime.parse(subscriptionExpiryStr);
       isExpired = DateTime.now().isAfter(expiryDate);
@@ -55,21 +67,38 @@ Future<void> main() async {
 
   bool isActivated = prefs.getBool('is_activated') ?? false;
 
-  runApp(ProviderScope(child: AttendanceApp(isExpired: isExpired, isActivated: isActivated)));
+  runApp(ProviderScope(
+    child: AttendanceApp(
+      isExpired: isExpired, 
+      isActivated: isActivated, 
+      isRemotelyLocked: isRemotelyLocked, 
+      remoteLockMessage: remoteLockMessage
+    )
+  ));
 }
 
 class AttendanceApp extends StatelessWidget {
   final bool isExpired;
   final bool isActivated;
-  const AttendanceApp({super.key, required this.isExpired, required this.isActivated});
+  final bool isRemotelyLocked;
+  final String remoteLockMessage;
+
+  const AttendanceApp({
+    super.key, 
+    required this.isExpired, 
+    required this.isActivated,
+    required this.isRemotelyLocked,
+    required this.remoteLockMessage
+  });
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Smart Attendance',
       theme: AppTheme.darkTheme,
+      navigatorKey: CloudKioskService().navigatorKey, // NEW
       home: isExpired 
-          ? const AppExpiredScreen() 
+          ? AppExpiredScreen(customMessage: isRemotelyLocked ? remoteLockMessage : null) 
           : (!isActivated ? const ActivationScreen() : const HomeScreen()),
       debugShowCheckedModeBanner: false,
     );

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:staff_attendance_app/core/providers/db_provider.dart';
 import 'package:staff_attendance_app/features/admin/employee_management_screen.dart';
 import 'package:staff_attendance_app/features/admin/admin_auth_screen.dart';
+import 'package:staff_attendance_app/features/admin/super_admin_auth_screen.dart';
+import 'package:staff_attendance_app/features/admin/email_config_screen.dart';
+import 'package:staff_attendance_app/features/admin/change_super_admin_pin_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:staff_attendance_app/services/sim_sms_service.dart';
 import 'package:intl/intl.dart';
@@ -116,6 +120,171 @@ class AdminSettingsScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _sendDailySummarySms(BuildContext context, WidgetRef ref) async {
+    final db = ref.read(databaseProvider);
+    String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.cardColor,
+        title: const Text("Sending Daily Summary", style: TextStyle(color: Colors.orangeAccent)),
+        content: const Text("Sending SMS slowly (1 per minute) to avoid Android security blocks.\n\nPlease DO NOT close this app or lock your screen until it finishes.", style: TextStyle(color: Colors.white)),
+        contentPadding: const EdgeInsets.all(20),
+      ),
+    );
+
+    try {
+      final allStaff = await db.getAllStaffs();
+      final todayAttendance = await db.getAttendanceByDate(today);
+      
+      Map<String, Map<String, dynamic>> attendanceMap = {};
+      for (var a in todayAttendance) {
+        attendanceMap[a['register_no'] as String] = a;
+      }
+      
+      int sentCount = 0;
+      for (var staff in allStaff) {
+        String phone = staff['mobile_no'] ?? '';
+        if (phone.isNotEmpty && phone.length >= 10) {
+          String name = staff['name'] ?? 'Employee';
+          String regNo = staff['register_no'] ?? '';
+          
+          String inTime = "Not scanned";
+          String outTime = "Not scanned";
+          
+          if (attendanceMap.containsKey(regNo)) {
+             var a = attendanceMap[regNo]!;
+             inTime = a['in_time']?.toString() ?? "Not scanned";
+             if (inTime.isEmpty) inTime = "Not scanned";
+             outTime = a['out_time']?.toString() ?? "Not scanned";
+             if (outTime.isEmpty) outTime = "Not scanned";
+          }
+          
+          String message = "St.Mary's Matriculation Higher Secondary School Chinna Udayamuthur, Tirupattur\n\nDear $name, Attendance for $today:\nMorning In: $inTime\nEvening Out: $outTime";
+          
+          await SimSmsService.sendSms(phone, message);
+          sentCount++;
+          
+          // Delay for 1 minute to bypass Android limit
+          await Future.delayed(const Duration(minutes: 1));
+        }
+      }
+
+      if (context.mounted) {
+        Navigator.pop(context); // close progress dialog
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Daily Summary successfully sent to $sentCount employees."),
+          backgroundColor: AppTheme.accentEmerald,
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // close dialog
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Error sending daily summary: $e"),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+    }
+  }
+
+  Future<void> _sendPrincipalEmailReport(BuildContext context, WidgetRef ref) async {
+    final db = ref.read(databaseProvider);
+    String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final allStaff = await db.getAllStaffs();
+      final todayAttendance = await db.getAttendanceByDate(today);
+
+      int totalTeaching = 0;
+      int totalNonTeaching = 0;
+
+      for (var staff in allStaff) {
+        String regNo = staff['register_no'] ?? '';
+        if (regNo.toUpperCase().startsWith('SMSNS')) {
+          totalNonTeaching++;
+        } else {
+          totalTeaching++;
+        }
+      }
+
+      int presentTeaching = 0;
+      int lateTeaching = 0;
+      int presentNonTeaching = 0;
+      int lateNonTeaching = 0;
+
+      for (var att in todayAttendance) {
+        String regNo = att['register_no'] ?? '';
+        String status = att['status'] ?? 'Present';
+        
+        if (regNo.toUpperCase().startsWith('SMSNS')) {
+          presentNonTeaching++;
+          if (status == 'Late Entry') lateNonTeaching++;
+        } else {
+          presentTeaching++;
+          if (status == 'Late Entry') lateTeaching++;
+        }
+      }
+
+      int absentTeaching = totalTeaching - presentTeaching;
+      if (absentTeaching < 0) absentTeaching = 0;
+
+      int absentNonTeaching = totalNonTeaching - presentNonTeaching;
+      if (absentNonTeaching < 0) absentNonTeaching = 0;
+
+      if (context.mounted) Navigator.pop(context); // hide loading
+
+      String subject = "Daily Staff Attendance Report - $today";
+      String body = '''Respected Principal,
+
+Please find the staff attendance summary for today ($today) below:
+
+--- TEACHING STAFF ---
+Total: $totalTeaching
+Present: $presentTeaching
+Absent: $absentTeaching
+Late Entry: $lateTeaching
+
+--- NON-TEACHING STAFF ---
+Total: $totalNonTeaching
+Present: $presentNonTeaching
+Absent: $absentNonTeaching
+Late Entry: $lateNonTeaching
+
+Regards,
+Attendance System
+St.Mary's Matriculation Higher Secondary School
+''';
+
+      final Uri emailLaunchUri = Uri(
+        scheme: 'mailto',
+        path: '',
+        query: 'subject=${Uri.encodeComponent(subject)}&body=${Uri.encodeComponent(body)}',
+      );
+
+      if (await canLaunchUrl(emailLaunchUri)) {
+        await launchUrl(emailLaunchUri);
+      } else {
+        if (context.mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open email app. Please ensure an email app is installed."), backgroundColor: Colors.redAccent));
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error generating report: $e"), backgroundColor: Colors.redAccent));
+      }
+    }
+  }
+
   void _broadcastSms(BuildContext context, WidgetRef ref) {
     final TextEditingController msgCtrl = TextEditingController();
     showDialog(
@@ -188,6 +357,7 @@ class AdminSettingsScreen extends ConsumerWidget {
         children: [
           const Text("Database Management", style: TextStyle(color: AppTheme.accentCyan, fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
+          /*
           ListTile(
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -216,6 +386,7 @@ class AdminSettingsScreen extends ConsumerWidget {
               }
             },
           ),
+          */
           ListTile(
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -275,6 +446,62 @@ class AdminSettingsScreen extends ConsumerWidget {
             trailing: const Icon(Icons.send, color: Colors.orangeAccent, size: 16),
             onTap: () {
                _broadcastSms(context, ref);
+            },
+          ),
+          const SizedBox(height: 10),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.email, color: AppTheme.accentCyan),
+            title: const Text("Email Configuration", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Set sender, receivers, and BCC emails", style: TextStyle(color: Colors.white54)),
+            trailing: const Icon(Icons.arrow_forward_ios, color: AppTheme.accentCyan, size: 16),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => SuperAdminAuthScreen(
+                onAuthenticated: () {
+                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const EmailConfigScreen()));
+                },
+              )));
+            },
+          ),
+          const SizedBox(height: 10),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.security, color: Colors.orangeAccent),
+            title: const Text("Change SuperAdmin PIN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Set a new password for SuperAdmin features", style: TextStyle(color: Colors.white54)),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.orangeAccent, size: 16),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => SuperAdminAuthScreen(
+                onAuthenticated: () {
+                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ChangeSuperAdminPinScreen()));
+                },
+              )));
+            },
+          ),
+          const SizedBox(height: 10),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.schedule_send, color: AppTheme.accentEmerald),
+            title: const Text("Send Daily Summary SMS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Send consolidated IN/OUT times (1 message per minute)", style: TextStyle(color: Colors.white54)),
+            trailing: const Icon(Icons.send, color: AppTheme.accentEmerald, size: 16),
+            onTap: () {
+               _sendDailySummarySms(context, ref);
+            },
+          ),
+          const SizedBox(height: 10),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.email, color: Colors.blueAccent),
+            title: const Text("Send Principal Email Report", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Generate and email the daily attendance status report", style: TextStyle(color: Colors.white54)),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.blueAccent, size: 16),
+            onTap: () {
+               _sendPrincipalEmailReport(context, ref);
             },
           ),
           const SizedBox(height: 10),

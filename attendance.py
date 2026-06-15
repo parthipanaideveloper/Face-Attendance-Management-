@@ -59,11 +59,6 @@ def log_attendance(register_no, name, phone_number):
         ''', (register_no, current_date, current_time, current_time, status))
         conn.commit()
         print(f"[ATTENDANCE] Marked {name} (Reg No: {register_no}) {status.upper()} at {current_time} (IN-TIME)")
-        
-        # Send SMS
-        from sms_service import send_sms
-        message = f"Dear {name}, your attendance is marked as {status} for {current_date} at {current_time}."
-        send_sms(phone_number, message)
     else:
         # Already seen today -> Update Out-Time
         # We only update out_time so that the last time they are seen is their final out_time

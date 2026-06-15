@@ -42,6 +42,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
   Timer? _idleTimer;
   bool _isIdle = false;
 
+  Timer? _watchdogTimer;
+  DateTime _lastFrameTime = DateTime.now();
+
   List<Map<String, dynamic>> _cachedStaffs = [];
   bool _embeddingsLoaded = false;
   bool _isSavingImage = false;
@@ -53,6 +56,41 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     _loadLiveStats();
     _loadStaffEmbeddings();
     _initializeCamera();
+    _startWatchdog();
+  }
+
+  void _startWatchdog() {
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (_controller != null && _controller!.value.isInitialized && mounted) {
+        final now = DateTime.now();
+        if (now.difference(_lastFrameTime).inSeconds > 5) {
+          print("Watchdog: Camera seems frozen (no frames). Restarting...");
+          _isProcessing = false;
+          _lastFrameTime = DateTime.now();
+          _restartCamera();
+        } else if (_isProcessing && now.difference(_lastProcessTime).inSeconds > 6) {
+          print("Watchdog: Processing seems frozen. Restarting...");
+          _isProcessing = false;
+          _lastProcessTime = DateTime.now();
+          _restartCamera();
+        }
+      }
+    });
+  }
+
+  Future<void> _restartCamera() async {
+    try {
+      if (_controller != null) {
+        await _controller!.dispose();
+        _controller = null;
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      print("Error disposing camera in watchdog: $e");
+    }
+    if (mounted) {
+      _initializeCamera();
+    }
   }
 
   @override
@@ -204,6 +242,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     if (_controller == null || !_controller!.value.isInitialized) return;
     
     _controller!.startImageStream((CameraImage image) async {
+      _lastFrameTime = DateTime.now();
       if (_isProcessing) return;
       
       final now = DateTime.now();
@@ -412,6 +451,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     _idleTimer?.cancel();
+    _watchdogTimer?.cancel();
     super.dispose();
   }
 
@@ -511,6 +551,22 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
+                          ),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.refresh, size: 24),
+                            label: const Text("REFRESH", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                            onPressed: () {
+                              _isProcessing = false;
+                              _lastFrameTime = DateTime.now();
+                              _lastProcessTime = DateTime.now();
+                              _restartCamera();
+                            },
                           ),
                         ],
                       ),

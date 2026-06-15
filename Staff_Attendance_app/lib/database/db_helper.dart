@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:staff_attendance_app/services/sim_sms_service.dart';
+import 'package:staff_attendance_app/services/email_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class DatabaseHelper {
@@ -50,7 +51,8 @@ class DatabaseHelper {
         date TEXT,
         in_time TEXT,
         out_time TEXT,
-        status TEXT
+        status TEXT,
+        is_synced INTEGER DEFAULT 0
       )
     ''');
     await db.execute('''
@@ -103,6 +105,10 @@ class DatabaseHelper {
       'register_no': registerNo,
       'data': jsonEncode(staff)
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+    try {
+      await FirebaseFirestore.instance.collection('students').doc(registerNo).set(staff, SetOptions(merge: true));
+    } catch(e) {}
   }
 
   Future<List<Map<String, dynamic>>> getAllStaffs() async {
@@ -130,11 +136,19 @@ class DatabaseHelper {
       staff = existing;
     }
     await db.update('students', {'data': jsonEncode(staff)}, where: 'register_no = ?', whereArgs: [registerNo]);
+
+    try {
+      await FirebaseFirestore.instance.collection('students').doc(registerNo).set(staff, SetOptions(merge: true));
+    } catch(e) {}
   }
 
   Future<void> deleteStaff(String registerNo) async {
     final db = await database;
     await db.delete('students', where: 'register_no = ?', whereArgs: [registerNo]);
+
+    try {
+      await FirebaseFirestore.instance.collection('students').doc(registerNo).delete();
+    } catch(e) {}
   }
 
   Future<void> deleteAllStaffs() async {
@@ -159,7 +173,7 @@ class DatabaseHelper {
     
     final prefs = await SharedPreferences.getInstance();
     int teachingInLimit = prefs.getInt('teaching_in_limit') ?? (9 * 60 + 10);
-    int nonTeachingInLimit = prefs.getInt('non_teaching_in_limit') ?? (9 * 60 + 40);
+    int nonTeachingInLimit = prefs.getInt('non_teaching_in_limit') ?? (10 * 60);
     
     int limitMinutes = designation == 'Teaching Staff' ? teachingInLimit : nonTeachingInLimit;
     if (currentMinutes > limitMinutes) {
@@ -175,15 +189,28 @@ class DatabaseHelper {
         'date': today,
         'in_time': nowTime,
         'out_time': '',
-        'status': status
+        'status': status,
+        'is_synced': 0
       });
+
+      try {
+        FirebaseFirestore.instance.collection('attendance').doc('$today-$registerNo').set({
+          'register_no': registerNo,
+          'date': today,
+          'in_time': nowTime,
+          'out_time': '',
+          'status': status
+        }, SetOptions(merge: true));
+      } catch(e) {}
       
       if (staffData != null) {
         final phone = staffData['mobile_no'] ?? '';
         if (phone.isNotEmpty && name.isNotEmpty) {
-          SimSmsService.sendSms(phone, "St.Mary's Matriculation Higher Secondary School Chinna Udayamuthur, Tirupattur\n\nDear $name, your attendance is marked as $status (IN) at $nowTime.");
+          // Instant IN SMS disabled to prevent hitting Android limit. 
+          // Will be sent via Daily Summary.
         }
       }
+
 
       return {
         'name': name,
@@ -199,14 +226,23 @@ class DatabaseHelper {
       int id = existing.first['id'] as int;
       var record = existing.first;
       
-      await db.update('attendance', {'out_time': nowTime}, where: 'id = ?', whereArgs: [id]);
+      await db.update('attendance', {'out_time': nowTime, 'is_synced': 0}, where: 'id = ?', whereArgs: [id]);
+
+      try {
+        FirebaseFirestore.instance.collection('attendance').doc('$today-$registerNo').set({
+          'out_time': nowTime,
+        }, SetOptions(merge: true));
+      } catch(e) {}
 
       if (staffData != null) {
         final phone = staffData['mobile_no'] ?? '';
         if (phone.isNotEmpty && name.isNotEmpty) {
-          SimSmsService.sendSms(phone, "St.Mary's Matriculation Higher Secondary School Chinna Udayamuthur, Tirupattur\n\nDear $name, your attendance is marked OUT at $nowTime.");
+          String inTime = (record['in_time'] as String?) ?? '';
+          String msg = "St.Mary's Matriculation Higher Secondary School Chinna Udayamuthur, Tirupattur\n\nDear $name, your attendance is marked. Morning In Time: $inTime, Out Time: $nowTime";
+          SimSmsService.sendSms(phone, msg);
         }
       }
+
 
       return {
         'name': name,
@@ -230,16 +266,19 @@ class DatabaseHelper {
         'date': date,
         'in_time': inTime,
         'out_time': outTime,
-        'status': status
+        'status': status,
+        'is_synced': 0
       });
     } else {
       int id = existing.first['id'] as int;
       await db.update('attendance', {
         'in_time': inTime,
         'out_time': outTime,
-        'status': status
+        'status': status,
+        'is_synced': 0
       }, where: 'id = ?', whereArgs: [id]);
     }
+
   }
 
   Future<List<Map<String, dynamic>>> getAttendanceByDate(String date) async {
@@ -247,9 +286,16 @@ class DatabaseHelper {
     var attendanceSnapshot = await db.query('attendance', where: 'date = ?', whereArgs: [date]);
 
     List<Map<String, dynamic>> result = [];
+    Set<String> processedRegisters = {};
+
     for (var row in attendanceSnapshot) {
       var attData = Map<String, dynamic>.from(row);
-      var staffData = await getStaffByRegisterNo(attData['register_no'] as String);
+      String regNo = attData['register_no'] as String;
+      
+      if (processedRegisters.contains(regNo)) continue;
+      processedRegisters.add(regNo);
+
+      var staffData = await getStaffByRegisterNo(regNo);
       if (staffData != null) {
         attData['name'] = staffData['name'];
         attData['dept'] = staffData['dept'];
@@ -350,9 +396,8 @@ class DatabaseHelper {
     DateTime now = DateTime.now();
     String todayStr = DateFormat('yyyy-MM-dd').format(now);
     
-    int daysToSubtract = now.weekday - DateTime.monday;
-    if (daysToSubtract < 0) daysToSubtract += 7;
-    DateTime monday = now.subtract(Duration(days: daysToSubtract));
+    // Look back exactly 5 days from today (so we get 6 days total: 5 past days + today)
+    DateTime startDay = now.subtract(Duration(days: 5));
 
     final staffs = await getAllStaffs();
     int totalTeaching = 0;
@@ -368,7 +413,7 @@ class DatabaseHelper {
     }
 
     for (int i = 0; i < 6; i++) {
-      DateTime day = monday.add(Duration(days: i));
+      DateTime day = startDay.add(Duration(days: i));
       String dateStr = DateFormat('yyyy-MM-dd').format(day);
       
       var res = await db.rawQuery('SELECT register_no FROM attendance WHERE date = ?', [dateStr]);
@@ -452,9 +497,15 @@ class DatabaseHelper {
     var attendanceSnapshot = await db.query('attendance', where: 'date = ? AND status = ?', whereArgs: [today, 'Late Entry']);
 
     List<Map<String, dynamic>> result = [];
+    Set<String> processedRegisters = {};
     for (var row in attendanceSnapshot) {
       var attData = Map<String, dynamic>.from(row);
-      var staffData = await getStaffByRegisterNo(attData['register_no'] as String);
+      String regNo = attData['register_no'] as String;
+
+      if (processedRegisters.contains(regNo)) continue;
+      processedRegisters.add(regNo);
+
+      var staffData = await getStaffByRegisterNo(regNo);
       if (staffData != null) {
         attData['name'] = staffData['name'];
         attData['dept'] = staffData['dept'];

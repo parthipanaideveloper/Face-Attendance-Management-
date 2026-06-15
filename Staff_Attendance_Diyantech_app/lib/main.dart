@@ -10,11 +10,17 @@ import 'package:staff_attendance_app/database/db_helper.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:staff_attendance_app/firebase_options.dart';
+import 'package:staff_attendance_app/services/firebase_sync_service.dart';
+
 List<CameraDescription> cameras = [];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    FirebaseSyncService().startSyncListener();
     cameras = await availableCameras();
     await DatabaseHelper.initDb();
     await MLService().initialize();

@@ -8,7 +8,8 @@ import 'package:staff_attendance_app/features/attendance/home_screen.dart';
 import 'package:staff_attendance_app/features/super_admin/super_admin_screen.dart';
 
 class AppExpiredScreen extends StatefulWidget {
-  const AppExpiredScreen({super.key});
+  final String? customMessage;
+  const AppExpiredScreen({super.key, this.customMessage});
 
   @override
   State<AppExpiredScreen> createState() => _AppExpiredScreenState();
@@ -27,7 +28,6 @@ class _AppExpiredScreenState extends State<AppExpiredScreen> {
     final prefs = await SharedPreferences.getInstance();
     String? id = prefs.getString('device_id');
     
-    // Force migration if the old ID does not start with DTS- or has the literal bug
     if (id == null || !id.startsWith('DTS-') || id.contains('\${')) {
       String generateBlock() {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -113,10 +113,8 @@ class _AppExpiredScreenState extends State<AppExpiredScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentEmerald),
             onPressed: () async {
-              // Expected Key: Replace DTS with SMS, and reverse the remaining string.
-              // Example: DTS-A1B2-C3D4 -> SMS-4D3C-2B1A
               String expectedPrefix = "SMS-";
-              String partsToReverse = _deviceId.substring(4); // gets A1B2-C3D4
+              String partsToReverse = _deviceId.substring(4); 
               String reversedParts = partsToReverse.split('').reversed.join('');
               String expectedKey = expectedPrefix + reversedParts;
 
@@ -144,6 +142,8 @@ class _AppExpiredScreenState extends State<AppExpiredScreen> {
 
   @override
   Widget build(BuildContext context) {
+    bool isRemoteLock = widget.customMessage != null;
+
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
       body: Center(
@@ -154,15 +154,15 @@ class _AppExpiredScreenState extends State<AppExpiredScreen> {
             children: [
               const Icon(Icons.workspace_premium, size: 100, color: Colors.amberAccent),
               const SizedBox(height: 24),
-              const Text(
-                "Subscription Expired",
-                style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+              Text(
+                isRemoteLock ? "Access Revoked" : "Subscription Expired",
+                style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              const Text(
-                "Your trial period for the Smart Attendance App has successfully concluded. To continue using the software and accessing advanced features, an active developer subscription is required.",
-                style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.5),
+              Text(
+                widget.customMessage ?? "Your trial period for the Smart Attendance App has successfully concluded. To continue using the software and accessing advanced features, an active developer subscription is required.",
+                style: const TextStyle(color: Colors.white70, fontSize: 16, height: 1.5),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 30),

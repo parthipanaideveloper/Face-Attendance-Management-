@@ -13,6 +13,7 @@ def init_db():
             register_no TEXT UNIQUE NOT NULL,
             name TEXT NOT NULL,
             phone_number TEXT NOT NULL,
+            staff_type TEXT NOT NULL DEFAULT 'Teaching',
             image_path TEXT NOT NULL
         )
     ''')

@@ -41,6 +41,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
   Timer? _idleTimer;
   bool _isIdle = false;
 
+  Timer? _watchdogTimer;
+  DateTime _lastFrameTime = DateTime.now();
+
   List<Map<String, dynamic>> _cachedStaffs = [];
   bool _embeddingsLoaded = false;
   CameraImage? _lastImage;
@@ -57,6 +60,41 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     _loadLiveStats();
     _loadStaffEmbeddings();
     _initializeCamera();
+    _startWatchdog();
+  }
+
+  void _startWatchdog() {
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (_controller != null && _controller!.value.isInitialized && !_isDialogVisible && mounted) {
+        final now = DateTime.now();
+        if (now.difference(_lastFrameTime).inSeconds > 5) {
+          print("Watchdog: Camera seems frozen (no frames). Restarting...");
+          _isProcessing = false;
+          _lastFrameTime = DateTime.now();
+          _restartCamera();
+        } else if (_isProcessing && now.difference(_lastProcessTime).inSeconds > 6) {
+          print("Watchdog: Processing seems frozen. Restarting...");
+          _isProcessing = false;
+          _lastProcessTime = DateTime.now();
+          _restartCamera();
+        }
+      }
+    });
+  }
+
+  Future<void> _restartCamera() async {
+    try {
+      if (_controller != null) {
+        await _controller!.dispose();
+        _controller = null;
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      print("Error disposing camera in watchdog: $e");
+    }
+    if (mounted) {
+      _initializeCamera();
+    }
   }
 
   @override
@@ -196,6 +234,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     if (_controller == null || !_controller!.value.isInitialized) return;
     
     _controller!.startImageStream((CameraImage image) async {
+      _lastFrameTime = DateTime.now();
       _lastImage = image;
       if (_isProcessing || _isDialogVisible || _overrideCountdown > 0) return;
       
@@ -230,6 +269,25 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
         if (faces.isNotEmpty) {
           final face = faces.first;
           _resetIdleTimer(true);
+          
+          final double? rotY = face.headEulerAngleY; // Head is rotated to the right/left
+          final double? rotZ = face.headEulerAngleZ; // Head is tilted
+          final bool isLookingStraight = (rotY != null && rotY.abs() < 12) && (rotZ != null && rotZ.abs() < 12);
+          
+          if (!isLookingStraight) {
+            setState(() {
+              _faceDetected = true;
+              _statusText = "Please look straight at the camera!";
+              _faceRect = face.boundingBox;
+              final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+              _imageSize = isPortrait 
+                  ? Size(image.height.toDouble(), image.width.toDouble())
+                  : Size(image.width.toDouble(), image.height.toDouble());
+            });
+            _isProcessing = false;
+            return;
+          }
+
           if (!_faceDetected) {
             _flutterTts.speak("Look at the camera");
           }
@@ -457,6 +515,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     _idleTimer?.cancel();
+    _watchdogTimer?.cancel();
     super.dispose();
   }
 
@@ -535,43 +594,56 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
               }
             }
 
-            return AlertDialog(
-              backgroundColor: AppTheme.cardColor,
-              title: const Text("Correct Mismatch", style: TextStyle(color: Colors.white)),
+                    return AlertDialog(
+              backgroundColor: const Color(0xFF1E2230), // Darker, sleeker background
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              titlePadding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 8),
+              title: const Center(
+                child: Text("Correct Mismatch", style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+              ),
               content: SizedBox(
                 width: 320,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text("Enter ID Number", style: TextStyle(color: Colors.white70, fontSize: 16)),
-                    const SizedBox(height: 15),
+                    const Text("Enter Staff ID Number", style: TextStyle(color: Colors.white54, fontSize: 14)),
+                    const SizedBox(height: 20),
                     Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      height: 65,
                       width: double.infinity,
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: AppTheme.bgColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppTheme.accentCyan.withOpacity(0.5), width: 2),
+                        color: Colors.black38,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.accentCyan.withOpacity(0.6), width: 1.5),
+                        boxShadow: [
+                          BoxShadow(color: AppTheme.accentCyan.withOpacity(0.1), blurRadius: 12, spreadRadius: 1)
+                        ],
                       ),
                       child: Text(
-                        pinCode.isEmpty ? "----" : pinCode,
+                        pinCode.isEmpty ? "ID..." : pinCode,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppTheme.accentCyan, fontSize: 36, letterSpacing: 12, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: pinCode.isEmpty ? Colors.white30 : AppTheme.accentCyan, 
+                          fontSize: pinCode.isEmpty ? 20 : 36, 
+                          letterSpacing: pinCode.isEmpty ? 2 : 10, 
+                          fontWeight: FontWeight.bold
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 15),
+                    const SizedBox(height: 16),
                     // Matching Staff Info
                     if (selectedRegNo != null)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
+                          color: AppTheme.accentEmerald.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white24),
+                          border: Border.all(color: AppTheme.accentEmerald.withOpacity(0.4)),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.person_outline, color: Colors.white, size: 28),
+                            const Icon(Icons.how_to_reg, color: AppTheme.accentEmerald, size: 28),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
@@ -581,11 +653,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                                     _cachedStaffs.firstWhere((s) => s['register_no'] == selectedRegNo, orElse: () => {'name': ''})['name']?.toString() ?? '',
                                     style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
                                   ),
-                                  Text("ID: $selectedRegNo", style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                                  Text("ID: $selectedRegNo", style: const TextStyle(color: Colors.white70, fontSize: 13)),
                                 ],
                               ),
                             ),
-                            const Icon(Icons.check_circle, color: AppTheme.accentCyan, size: 20),
+                            const Icon(Icons.check_circle, color: AppTheme.accentEmerald, size: 24),
                           ],
                         ),
                       )
@@ -596,6 +668,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                           itemCount: matchedStaffs.length > 2 ? 2 : matchedStaffs.length,
                           itemBuilder: (c, i) => ListTile(
                             dense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                             title: Text("${matchedStaffs[i]['name']} (${matchedStaffs[i]['register_no']})", style: const TextStyle(color: Colors.white)),
                             onTap: () {
                               setDialogState(() {
@@ -606,8 +679,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                         ),
                       )
                     else if (pinCode.isNotEmpty)
-                      const Text("No exact match found", style: TextStyle(color: Colors.redAccent)),
-                    const SizedBox(height: 20),
+                      const Text("No exact match found", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w500)),
+                    
+                    const SizedBox(height: 24),
                     SizedBox(
                       width: 280,
                       child: GridView.count(
@@ -619,69 +693,67 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                         physics: const NeverScrollableScrollPhysics(),
                         children: [
                           for (var i = 1; i <= 9; i++)
-                            InkWell(
-                              onTap: () => setDialogState(() {
-                                pinCode += i.toString();
-                                selectedRegNo = null; // reset selection on new digit
-                              }),
-                              borderRadius: BorderRadius.circular(16),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.05),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.white12),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(i.toString(), style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.w500)),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2A2F42), // Professional dark bluish grey
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                elevation: 3,
+                                shadowColor: Colors.black54,
                               ),
+                              onPressed: () {
+                                setDialogState(() {
+                                  pinCode += i.toString();
+                                  selectedRegNo = null;
+                                });
+                              },
+                              child: Text(i.toString(), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w600)),
                             ),
-                          InkWell(
-                            onTap: () => setDialogState(() {
-                              if (pinCode.isNotEmpty) pinCode = pinCode.substring(0, pinCode.length - 1);
-                              selectedRegNo = null;
-                            }),
-                            borderRadius: BorderRadius.circular(16),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
-                              ),
-                              alignment: Alignment.center,
-                              child: const Icon(Icons.backspace_outlined, color: Colors.redAccent, size: 28),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent.withOpacity(0.15),
+                              foregroundColor: Colors.redAccent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              elevation: 0,
                             ),
+                            onPressed: () {
+                              setDialogState(() {
+                                if (pinCode.isNotEmpty) pinCode = pinCode.substring(0, pinCode.length - 1);
+                                selectedRegNo = null;
+                              });
+                            },
+                            child: const Icon(Icons.backspace_rounded, size: 26),
                           ),
-                          InkWell(
-                            onTap: () => setDialogState(() {
-                              pinCode += '0';
-                              selectedRegNo = null;
-                            }),
-                            borderRadius: BorderRadius.circular(16),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.white12),
-                              ),
-                              alignment: Alignment.center,
-                              child: const Text('0', style: TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.w500)),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2A2F42),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              elevation: 3,
+                              shadowColor: Colors.black54,
                             ),
+                            onPressed: () {
+                              setDialogState(() {
+                                pinCode += '0';
+                                selectedRegNo = null;
+                              });
+                            },
+                            child: const Text('0', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600)),
                           ),
-                          InkWell(
-                            onTap: () => setDialogState(() {
-                              pinCode = "";
-                              selectedRegNo = null;
-                            }),
-                            borderRadius: BorderRadius.circular(16),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.orangeAccent.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
-                              ),
-                              alignment: Alignment.center,
-                              child: const Icon(Icons.clear, color: Colors.orangeAccent, size: 32),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orangeAccent.withOpacity(0.15),
+                              foregroundColor: Colors.orangeAccent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              elevation: 0,
                             ),
+                            onPressed: () {
+                              setDialogState(() {
+                                pinCode = "";
+                                selectedRegNo = null;
+                              });
+                            },
+                            child: const Icon(Icons.clear_rounded, size: 30),
                           ),
                         ],
                       ),
@@ -689,46 +761,69 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                   ],
                 ),
               ),
+              actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 10),
               actions: [
-                TextButton(
-                  onPressed: () {
-                    _isDialogVisible = false;
-                    setState(() { _isIdle = false; });
-                    Navigator.pop(context);
-                  },
-                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentEmerald),
-                  onPressed: selectedRegNo == null ? null : () async {
-                    Navigator.pop(context);
-                    _isDialogVisible = false;
-                    
-                    final String actualName = _cachedStaffs.firstWhere((s) => s['register_no'] == selectedRegNo, orElse: () => {'name': 'Unknown'})['name'] ?? 'Unknown';
-                    // Save the screenshot with both names
-                    _saveMismatchImage(frozenImage, wronglyDetectedName, actualName);
-                    
-                    setState(() { 
-                      _isIdle = false; 
-                      _statusText = "Look at the camera...";
-                      _overrideCountdown = 3;
-                    });
-                    
-                    _flutterTts.speak("Look at the camera");
-                    
-                    for (int i = 3; i > 0; i--) {
-                      if (!mounted) return;
-                      setState(() { _overrideCountdown = i; });
-                      await Future.delayed(const Duration(seconds: 1));
-                    }
-                    
-                    if (!mounted) return;
-                    setState(() {
-                      _mismatchCorrectionRegNo = selectedRegNo;
-                      _overrideCountdown = 0;
-                    });
-                  },
-                  child: const Text("Re-verify & Mark", style: TextStyle(color: Colors.white)),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 1,
+                      child: TextButton(
+                        onPressed: () {
+                          _isDialogVisible = false;
+                          setState(() { _isIdle = false; });
+                          Navigator.pop(context);
+                        },
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text("CANCEL", style: TextStyle(color: Colors.white54, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.accentEmerald,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          elevation: 6,
+                          shadowColor: AppTheme.accentEmerald.withOpacity(0.5),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.verified_user_rounded, size: 22),
+                        label: const Text("RE-VERIFY", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                        onPressed: selectedRegNo == null ? null : () async {
+                          Navigator.pop(context);
+                          _isDialogVisible = false;
+                          
+                          final String actualName = _cachedStaffs.firstWhere((s) => s['register_no'] == selectedRegNo, orElse: () => {'name': 'Unknown'})['name'] ?? 'Unknown';
+                          _saveMismatchImage(frozenImage, wronglyDetectedName, actualName);
+                          
+                          setState(() { 
+                            _isIdle = false; 
+                            _statusText = "Look at the camera...";
+                            _overrideCountdown = 3;
+                          });
+                          
+                          _flutterTts.speak("Look at the camera");
+                          
+                          for (int i = 3; i > 0; i--) {
+                            if (!mounted) return;
+                            setState(() { _overrideCountdown = i; });
+                            await Future.delayed(const Duration(seconds: 1));
+                          }
+                          
+                          if (!mounted) return;
+                          setState(() {
+                            _mismatchCorrectionRegNo = selectedRegNo;
+                            _overrideCountdown = 0;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ],
             );
@@ -845,30 +940,14 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
             const Center(child: CircularProgressIndicator(color: AppTheme.accentCyan)),
             
           // Face Viewfinder Bounding Box
-          if (!_scanSuccess)
-            Center(
-              child: Container(
-                width: 280,
-                height: 340,
-                decoration: BoxDecoration(
-                  border: Border.all(color: _faceDetected ? Colors.green : Colors.transparent, width: 3),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                clipBehavior: Clip.hardEdge,
-                child: Stack(
-                  children: [
-                    // Scanning Line scoped inside the viewfinder box
-                    if (_isProcessing && _faceDetected)
-                      Container(
-                        height: 4,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          boxShadow: [BoxShadow(color: Colors.green.withOpacity(0.5), blurRadius: 15, spreadRadius: 5)],
-                        ),
-                      ).animate(onPlay: (c) => c.repeat(reverse: true))
-                       .moveY(begin: 0, end: 340, duration: 1500.ms, curve: Curves.easeInOut),
-                  ],
+          if (!_scanSuccess && _faceRect != null && _imageSize != null)
+            SizedBox.expand(
+              child: CustomPaint(
+                painter: FaceBoundingBoxPainter(
+                  faceRect: _faceRect!,
+                  imageSize: _imageSize!,
+                  color: _statusText.contains("straight") ? Colors.orange : (_faceDetected ? Colors.green : Colors.transparent),
+                  isProcessing: _isProcessing && _statusText == "Identifying...",
                 ),
               ),
             ),
@@ -906,6 +985,22 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
+                          ),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.refresh, size: 24),
+                            label: const Text("REFRESH", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                            onPressed: () {
+                              _isProcessing = false;
+                              _lastFrameTime = DateTime.now();
+                              _lastProcessTime = DateTime.now();
+                              _restartCamera();
+                            },
                           ),
                         ],
                       ),
@@ -1078,5 +1173,80 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
         ],
       ),
     );
+  }
+}
+
+class FaceBoundingBoxPainter extends CustomPainter {
+  final Rect faceRect;
+  final Size imageSize;
+  final Color color;
+  final bool isProcessing;
+
+  FaceBoundingBoxPainter({
+    required this.faceRect,
+    required this.imageSize,
+    required this.color,
+    this.isProcessing = false,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double scaleY = size.height / imageSize.height;
+    final double scaleX = size.width / imageSize.width;
+
+    // Assuming front camera is mirrored, we invert X
+    double translateX(double x) {
+      return size.width - (x * scaleX);
+    }
+    double translateY(double y) {
+      return y * scaleY;
+    }
+
+    final double left = translateX(faceRect.right);
+    final double right = translateX(faceRect.left);
+    final double top = translateY(faceRect.top);
+    final double bottom = translateY(faceRect.bottom);
+
+    final Rect rect = Rect.fromLTRB(left, top, right, bottom);
+
+    final Paint paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5.0
+      ..color = color;
+
+    // Draw corners
+    final double cornerLength = 40.0;
+    
+    // Top-left
+    canvas.drawLine(rect.topLeft, rect.topLeft + Offset(cornerLength, 0), paint);
+    canvas.drawLine(rect.topLeft, rect.topLeft + Offset(0, cornerLength), paint);
+    
+    // Top-right
+    canvas.drawLine(rect.topRight, rect.topRight + Offset(-cornerLength, 0), paint);
+    canvas.drawLine(rect.topRight, rect.topRight + Offset(0, cornerLength), paint);
+    
+    // Bottom-left
+    canvas.drawLine(rect.bottomLeft, rect.bottomLeft + Offset(cornerLength, 0), paint);
+    canvas.drawLine(rect.bottomLeft, rect.bottomLeft + Offset(0, -cornerLength), paint);
+    
+    // Bottom-right
+    canvas.drawLine(rect.bottomRight, rect.bottomRight + Offset(-cornerLength, 0), paint);
+    canvas.drawLine(rect.bottomRight, rect.bottomRight + Offset(0, -cornerLength), paint);
+
+    if (isProcessing) {
+      final Paint scanPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..color = color.withOpacity(0.5);
+      
+      // Simple static scan line for effect, animation is normally done via widgets but can be done here with an animation value
+      double midY = (top + bottom) / 2;
+      canvas.drawLine(Offset(left, midY), Offset(right, midY), scanPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant FaceBoundingBoxPainter oldDelegate) {
+    return oldDelegate.faceRect != faceRect || oldDelegate.color != color || oldDelegate.isProcessing != isProcessing;
   }
 }

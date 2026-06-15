@@ -3,9 +3,13 @@ import sqlite3
 import os
 
 def register_student():
-    name = input("Enter Student Name: ")
+    name = input("Enter Staff Name: ")
     register_no = input("Enter Register Number: ")
     phone_number = input("Enter Phone Number (e.g. 9876543210): ")
+    staff_type = input("Enter Staff Type (Teaching/Non-Teaching): ")
+    if staff_type not in ["Teaching", "Non-Teaching"]:
+        print("[WARNING] Invalid staff type. Defaulting to 'Teaching'.")
+        staff_type = "Teaching"
 
     # Create students directory if it doesn't exist
     if not os.path.exists("students"):
@@ -45,8 +49,8 @@ def register_student():
     try:
         conn = sqlite3.connect("attendance_system.db")
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO students (register_no, name, phone_number, image_path) VALUES (?, ?, ?, ?)", 
-                       (register_no, name, phone_number, image_path))
+        cursor.execute("INSERT INTO students (register_no, name, phone_number, staff_type, image_path) VALUES (?, ?, ?, ?, ?)", 
+                       (register_no, name, phone_number, staff_type, image_path))
         conn.commit()
         conn.close()
         print(f"\n[SUCCESS] Student '{name}' registered successfully!")

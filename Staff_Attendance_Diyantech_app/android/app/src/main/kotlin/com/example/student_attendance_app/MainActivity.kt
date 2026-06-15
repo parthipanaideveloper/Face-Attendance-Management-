@@ -21,12 +21,7 @@ class MainActivity : FlutterFragmentActivity() {
 
                 if (phone != null && message != null) {
                     try {
-                        val smsManager: SmsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            applicationContext.getSystemService(SmsManager::class.java)
-                        } else {
-                            SmsManager.getDefault()
-                        }
-                        
+                        val smsManager: SmsManager = SmsManager.getDefault()
                         val parts = smsManager.divideMessage(message)
                         if (parts.size > 1) {
                             val sentIntents = java.util.ArrayList<PendingIntent>()

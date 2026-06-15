@@ -63,7 +63,8 @@ class DatabaseHelper {
             date TEXT,
             in_time TEXT,
             out_time TEXT,
-            status TEXT
+            status TEXT,
+            is_synced INTEGER DEFAULT 0
           )
         ''');
         await db.execute('''
@@ -160,7 +161,8 @@ class DatabaseHelper {
         'date': today,
         'in_time': nowTime,
         'out_time': '',
-        'status': status
+        'status': status,
+        'is_synced': 0
       });
       
       if (staffDoc != null) {
@@ -182,8 +184,7 @@ class DatabaseHelper {
     } else {
       int id = existing.first['id'] as int;
       var record = existing.first;
-      
-      await db.update('attendance', {'out_time': nowTime}, where: 'id = ?', whereArgs: [id]);
+      await db.update('attendance', {'out_time': nowTime, 'is_synced': 0}, where: 'id = ?', whereArgs: [id]);
 
       if (staffDoc != null) {
         final phone = staffDoc['mobile_no'] ?? '';
@@ -216,14 +217,16 @@ class DatabaseHelper {
         'date': date,
         'in_time': inTime,
         'out_time': outTime,
-        'status': status
+        'status': status,
+        'is_synced': 0
       });
     } else {
       int id = existing.first['id'] as int;
       await db.update('attendance', {
         'in_time': inTime,
         'out_time': outTime,
-        'status': status
+        'status': status,
+        'is_synced': 0
       }, where: 'id = ?', whereArgs: [id]);
     }
   }

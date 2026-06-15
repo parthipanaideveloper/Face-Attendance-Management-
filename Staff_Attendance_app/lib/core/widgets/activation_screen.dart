@@ -40,8 +40,8 @@ class _ActivationScreenState extends State<ActivationScreen> {
   Future<void> _verifyPin() async {
     if (_pinController.text.isEmpty) return;
     
-    // The secret formula: Device ID * 47
-    int expectedPin = _deviceId * 47;
+    // The secret formula: Device ID * 83
+    int expectedPin = _deviceId * 83;
     int? enteredPin = int.tryParse(_pinController.text.trim());
 
     if (enteredPin == expectedPin) {
