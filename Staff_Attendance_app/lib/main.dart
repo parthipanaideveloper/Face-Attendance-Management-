@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:staff_attendance_app/services/firebase_sync_service.dart';
 import 'package:staff_attendance_app/services/sms_scheduler_service.dart';
 import 'package:staff_attendance_app/services/cloud_kiosk_service.dart'; // NEW
+import 'package:staff_attendance_app/services/activity_log_service.dart'; // NEW
 
 List<CameraDescription> cameras = [];
 
@@ -77,7 +78,7 @@ Future<void> main() async {
   ));
 }
 
-class AttendanceApp extends StatelessWidget {
+class AttendanceApp extends StatefulWidget {
   final bool isExpired;
   final bool isActivated;
   final bool isRemotelyLocked;
@@ -92,14 +93,41 @@ class AttendanceApp extends StatelessWidget {
   });
 
   @override
+  State<AttendanceApp> createState() => _AttendanceAppState();
+}
+
+class _AttendanceAppState extends State<AttendanceApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ActivityLogService.logAppLifecycle('resumed (Opened)');
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ActivityLogService.logAppLifecycle('resumed (Opened)');
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      ActivityLogService.logAppLifecycle(state.name);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Smart Attendance',
       theme: AppTheme.darkTheme,
       navigatorKey: CloudKioskService().navigatorKey, // NEW
-      home: isExpired 
-          ? AppExpiredScreen(customMessage: isRemotelyLocked ? remoteLockMessage : null) 
-          : (!isActivated ? const ActivationScreen() : const HomeScreen()),
+      home: widget.isExpired 
+          ? AppExpiredScreen(customMessage: widget.isRemotelyLocked ? widget.remoteLockMessage : null) 
+          : (!widget.isActivated ? const ActivationScreen() : const HomeScreen()),
       debugShowCheckedModeBanner: false,
     );
   }

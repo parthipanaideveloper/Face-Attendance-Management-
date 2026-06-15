@@ -9,6 +9,7 @@ import 'package:staff_attendance_app/features/admin/admin_auth_screen.dart';
 import 'package:staff_attendance_app/features/admin/super_admin_auth_screen.dart';
 import 'package:staff_attendance_app/features/admin/email_config_screen.dart';
 import 'package:staff_attendance_app/features/admin/change_super_admin_pin_screen.dart';
+import 'package:staff_attendance_app/features/admin/live_monitoring_screen.dart'; // NEW
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:staff_attendance_app/services/sim_sms_service.dart';
 import 'package:intl/intl.dart';
@@ -476,6 +477,22 @@ St.Mary's Matriculation Higher Secondary School
               Navigator.push(context, MaterialPageRoute(builder: (context) => SuperAdminAuthScreen(
                 onAuthenticated: () {
                   Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ChangeSuperAdminPinScreen()));
+                },
+              )));
+            },
+          ),
+          const SizedBox(height: 10),
+          ListTile(
+            tileColor: AppTheme.cardColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            leading: const Icon(Icons.monitor_heart, color: Colors.pinkAccent),
+            title: const Text("Live Health & Monitoring Hub", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Track tablet health and all admin activity logs in real-time", style: TextStyle(color: Colors.white54)),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.pinkAccent, size: 16),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => SuperAdminAuthScreen(
+                onAuthenticated: () {
+                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LiveMonitoringScreen()));
                 },
               )));
             },

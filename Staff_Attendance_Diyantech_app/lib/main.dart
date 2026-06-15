@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:staff_attendance_app/firebase_options.dart';
 import 'package:staff_attendance_app/services/firebase_sync_service.dart';
+import 'package:staff_attendance_app/services/activity_log_service.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -53,16 +54,43 @@ Future<void> main() async {
   runApp(ProviderScope(child: AttendanceApp(isExpired: isExpired)));
 }
 
-class AttendanceApp extends StatelessWidget {
+class AttendanceApp extends StatefulWidget {
   final bool isExpired;
   const AttendanceApp({super.key, required this.isExpired});
+
+  @override
+  State<AttendanceApp> createState() => _AttendanceAppState();
+}
+
+class _AttendanceAppState extends State<AttendanceApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ActivityLogService.logAppLifecycle('resumed (Opened)');
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ActivityLogService.logAppLifecycle('resumed (Opened)');
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      ActivityLogService.logAppLifecycle(state.name);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Smart Attendance',
       theme: AppTheme.darkTheme,
-      home: isExpired ? const AppExpiredScreen() : const HomeScreen(),
+      home: widget.isExpired ? const AppExpiredScreen() : const HomeScreen(),
       debugShowCheckedModeBanner: false,
     );
   }

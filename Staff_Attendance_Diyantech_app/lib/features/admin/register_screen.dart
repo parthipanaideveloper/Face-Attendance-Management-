@@ -13,6 +13,7 @@ import 'package:staff_attendance_app/core/providers/db_provider.dart';
 import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:staff_attendance_app/features/attendance/scanner_screen.dart';
 import 'package:staff_attendance_app/features/attendance/home_screen.dart';
+import 'package:staff_attendance_app/services/activity_log_service.dart';
 import 'package:flutter/foundation.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -246,6 +247,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
       };
       
       await db.insertStaff(staff);
+      ActivityLogService.logAdminAction('REGISTERED', 'Registered new employee: \${_nameCtrl.text} ($fullRegNo)'); // NEW
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee Registered Successfully!"), backgroundColor: AppTheme.accentEmerald));

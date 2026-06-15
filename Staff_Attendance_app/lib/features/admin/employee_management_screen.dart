@@ -6,6 +6,7 @@ import 'package:staff_attendance_app/core/theme/app_theme.dart';
 import 'package:staff_attendance_app/core/providers/db_provider.dart';
 import 'package:staff_attendance_app/features/admin/admin_auth_screen.dart';
 import 'package:staff_attendance_app/core/widgets/footer_widget.dart';
+import 'package:staff_attendance_app/services/activity_log_service.dart'; // NEW
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 
@@ -278,8 +279,10 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
               if (oldRegNo != newRegNo) {
                  await db.insertStaff(updated);
                  await db.deleteStaff(oldRegNo);
+                 ActivityLogService.logAdminAction('UPDATED', 'Changed Employee ID from $oldRegNo to $newRegNo for ${updated['name']}');
               } else {
                  await db.updateStaff(updated);
+                 ActivityLogService.logAdminAction('UPDATED', 'Updated Employee: ${updated['name']} ($newRegNo)');
               }
               if (mounted) {
                 Navigator.pop(context);
@@ -311,6 +314,7 @@ class _EmployeeManagementScreenState extends ConsumerState<EmployeeManagementScr
                   Navigator.pop(authContext); // Close auth screen correctly
                   final db = ref.read(databaseProvider);
                   await db.deleteStaff(registerNo);
+                  ActivityLogService.logAdminAction('DELETED', 'Deleted Employee ID: $registerNo');
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Employee deleted!")));
                     _loadEmployees();

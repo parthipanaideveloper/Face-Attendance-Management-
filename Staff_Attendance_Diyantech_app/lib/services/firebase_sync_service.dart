@@ -3,6 +3,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:staff_attendance_app/database/db_helper.dart';
+import 'package:staff_attendance_app/services/activity_log_service.dart'; // NEW
 import 'package:intl/intl.dart';
 
 class FirebaseSyncService {
@@ -17,6 +18,7 @@ class FirebaseSyncService {
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
       if (results.contains(ConnectivityResult.mobile) || results.contains(ConnectivityResult.wifi)) {
         debugPrint("[FirebaseSync] Device is online. Attempting to sync...");
+        ActivityLogService.logDeviceOnline(); // NEW
         syncOfflineData();
       }
     });
