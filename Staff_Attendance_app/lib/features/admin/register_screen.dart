@@ -133,7 +133,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
       final bytes = allBytes.done().buffer.asUint8List();
 
       final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
-      final InputImageRotation imageRotation = InputImageRotationValue.fromRawValue(cameras[1].sensorOrientation) ?? InputImageRotation.rotation270deg;
+      final InputImageRotation imageRotation = InputImageRotationValue.fromRawValue(_controller!.description.sensorOrientation) ?? InputImageRotation.rotation270deg;
       final InputImageFormat inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21;
       
       final inputImageData = InputImageMetadata(
@@ -162,7 +162,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with WidgetsBin
         else if (_poseStep == 5 && pitch < -8) poseMatched = true; // Look down
 
         if (poseMatched) {
-          final embedding = await MLService().getEmbeddingFromStream(bytes, image.width, image.height, face, cameras[1].sensorOrientation);
+          final embedding = await MLService().getEmbeddingFromStream(bytes, image.width, image.height, face, _controller!.description.sensorOrientation);
           if (embedding != null) {
             _collectedEmbeddings.add(embedding);
             _framesCapturedInCurrentPose++;

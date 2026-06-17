@@ -1,10 +1,77 @@
 import 'dart:io';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
+
+// Top level Isolate function to offload heavy image processing from the UI thread.
+List<dynamic> _preProcessImageInIsolate(Map<String, dynamic> args) {
+  final Uint8List bytes = args['bytes'];
+  final int width = args['width'];
+  final int height = args['height'];
+  final int sensorOrientation = args['sensorOrientation'];
+  final int faceLeft = args['faceLeft'];
+  final int faceTop = args['faceTop'];
+  final int faceRight = args['faceRight'];
+  final int faceBottom = args['faceBottom'];
+
+  var imgData = img.Image(width: width, height: height);
+  final int frameSize = width * height;
+
+  for (int h = 0; h < height; h++) {
+    for (int w = 0; w < width; w++) {
+      final int yIndex = h * width + w;
+      final int uvIndex = frameSize + (h ~/ 2) * width + (w ~/ 2) * 2;
+
+      if (uvIndex + 1 >= bytes.length) continue;
+
+      final y = bytes[yIndex];
+      final v = bytes[uvIndex];
+      final u = bytes[uvIndex + 1];
+
+      int r = (y + (1.370705 * (v - 128))).round().clamp(0, 255);
+      int g = (y - (0.337633 * (u - 128)) - (0.698001 * (v - 128))).round().clamp(0, 255);
+      int b = (y + (1.732446 * (u - 128))).round().clamp(0, 255);
+
+      imgData.setPixelRgb(w, h, r, g, b);
+    }
+  }
+
+  final rotatedImage = img.copyRotate(imgData, angle: sensorOrientation);
+
+  int x = max(0, faceLeft);
+  int y = max(0, faceTop);
+  int right = min(rotatedImage.width, faceRight);
+  int bottom = min(rotatedImage.height, faceBottom);
+  int wCrop = right - x;
+  int hCrop = bottom - y;
+
+  if (wCrop <= 0 || hCrop <= 0) {
+    throw Exception("Face crop invalid");
+  }
+
+  final croppedImage = img.copyCrop(rotatedImage, x: x, y: y, width: wCrop, height: hCrop);
+  final resizedImage = img.copyResize(croppedImage, width: 112, height: 112);
+
+  var input = List.generate(1, (i) => 
+    List.generate(112, (j) => 
+      List.generate(112, (k) => 
+        List.generate(3, (l) => 0.0))));
+
+  for (int yy = 0; yy < 112; yy++) {
+    for (int xx = 0; xx < 112; xx++) {
+      final pixel = resizedImage.getPixel(xx, yy);
+      input[0][yy][xx][0] = (pixel.r - 127.5) / 128.0;
+      input[0][yy][xx][1] = (pixel.g - 127.5) / 128.0;
+      input[0][yy][xx][2] = (pixel.b - 127.5) / 128.0;
+    }
+  }
+
+  return input;
+}
 
 class MLService {
   static final MLService _instance = MLService._internal();
@@ -50,60 +117,25 @@ class MLService {
   Future<List<double>?> getEmbeddingFromStream(Uint8List bytes, int width, int height, Face face, int sensorOrientation) async {
     if (_interpreter == null) throw Exception("Model not loaded: $initError");
 
-    var imgData = img.Image(width: width, height: height);
-    final int frameSize = width * height;
-
-    for (int h = 0; h < height; h++) {
-      for (int w = 0; w < width; w++) {
-        final int yIndex = h * width + w;
-        final int uvIndex = frameSize + (h ~/ 2) * width + (w ~/ 2) * 2;
-
-        if (uvIndex + 1 >= bytes.length) continue;
-
-        final y = bytes[yIndex];
-        final v = bytes[uvIndex];
-        final u = bytes[uvIndex + 1];
-
-        int r = (y + (1.370705 * (v - 128))).round().clamp(0, 255);
-        int g = (y - (0.337633 * (u - 128)) - (0.698001 * (v - 128))).round().clamp(0, 255);
-        int b = (y + (1.732446 * (u - 128))).round().clamp(0, 255);
-
-        imgData.setPixelRgb(w, h, r, g, b);
-      }
-    }
-
-    final rotatedImage = img.copyRotate(imgData, angle: sensorOrientation);
-
     final bbox = face.boundingBox;
-    int x = max(0, bbox.left.toInt());
-    int y = max(0, bbox.top.toInt());
-    int right = min(rotatedImage.width, bbox.right.toInt());
-    int bottom = min(rotatedImage.height, bbox.bottom.toInt());
-    int w = right - x;
-    int h = bottom - y;
-
-    if (w <= 0 || h <= 0) throw Exception("Face crop invalid: w=$w, h=$h, bounds=${rotatedImage.width}x${rotatedImage.height}");
-
-    final croppedImage = img.copyCrop(rotatedImage, x: x, y: y, width: w, height: h);
-    final resizedImage = img.copyResize(croppedImage, width: 112, height: 112);
-
-    var input = List.generate(1, (i) => 
-      List.generate(112, (j) => 
-        List.generate(112, (k) => 
-          List.generate(3, (l) => 0.0))));
-
-    for (int yy = 0; yy < 112; yy++) {
-      for (int xx = 0; xx < 112; xx++) {
-        final pixel = resizedImage.getPixel(xx, yy);
-        input[0][yy][xx][0] = (pixel.r - 127.5) / 128.0;
-        input[0][yy][xx][1] = (pixel.g - 127.5) / 128.0;
-        input[0][yy][xx][2] = (pixel.b - 127.5) / 128.0;
-      }
-    }
+    
+    // Process bytes in an isolate to prevent UI thread from freezing
+    final input = await compute(_preProcessImageInIsolate, {
+      'bytes': bytes,
+      'width': width,
+      'height': height,
+      'sensorOrientation': sensorOrientation,
+      'faceLeft': bbox.left.toInt(),
+      'faceTop': bbox.top.toInt(),
+      'faceRight': bbox.right.toInt(),
+      'faceBottom': bbox.bottom.toInt(),
+    });
 
     final outputShape = _interpreter!.getOutputTensor(0).shape;
     final int outputSize = outputShape.length > 1 ? outputShape[1] : outputShape[0];
     var output = List.generate(1, (i) => List.filled(outputSize, 0.0));
+    
+    // Run the interpreter on the main isolate (usually fast enough, ~10ms for MobileFaceNet)
     _interpreter!.run(input, output);
 
     List<double> emb = output[0];

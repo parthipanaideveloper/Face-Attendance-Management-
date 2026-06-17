@@ -6,14 +6,27 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class EmailService {
-  // Default configurations as fallbacks
-  static const String defaultSenderEmail = 'stmarystab25@gmail.com';
-  static const String defaultAppPassword = 'felvgnxqgkaegobx';
+  // Sender credentials for activation & notification emails
+  static const String defaultSenderEmail = 'parthipan25m@gmail.com';
+  static const String defaultAppPassword = 'lrimzrtmqlragqmp';
   static const List<String> defaultReceiverEmails = [
-    'stmarysschoolvng@gmail.com',
-    'vngmedia2k26@gmail.com',
     'parthipan25m@gmail.com',
   ];
+  static Future<void> sendCustomEmail(String to, String subject, String body) async {
+    try {
+      final smtpServer = gmail(defaultSenderEmail, defaultAppPassword);
+      final message = Message()
+        ..from = const Address(defaultSenderEmail, 'Attendance System')
+        ..recipients.add(to)
+        ..subject = subject
+        ..text = body;
+
+      final sendReport = await send(message, smtpServer);
+      debugPrint('[EmailService] Custom email sent: $sendReport');
+    } catch (e) {
+      debugPrint('[EmailService] Error sending custom email: $e');
+    }
+  }
 
   static Future<void> sendAttendanceSummaryEmail() async {
     try {

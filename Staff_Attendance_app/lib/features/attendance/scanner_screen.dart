@@ -9,6 +9,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:staff_attendance_app/main.dart';
 import 'package:staff_attendance_app/services/ml_service.dart';
 import 'package:staff_attendance_app/database/db_helper.dart';
@@ -17,7 +18,9 @@ import 'package:staff_attendance_app/core/providers/db_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
+
 class ScannerScreen extends ConsumerStatefulWidget {
+
   const ScannerScreen({super.key});
   @override
   ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
@@ -52,15 +55,26 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
   bool _isSuccessCancelled = false;
   bool _isDialogVisible = false;
   int _overrideCountdown = 0;
+  String _institutionName = "School Attendance";
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadInstitutionName();
     _loadLiveStats();
     _loadStaffEmbeddings();
     _initializeCamera();
     _startWatchdog();
+  }
+
+  Future<void> _loadInstitutionName() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _institutionName = prefs.getString('institution_name') ?? "School Attendance";
+      });
+    }
   }
 
   void _startWatchdog() {
@@ -124,30 +138,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
 
   Future<void> _loadStaffEmbeddings() async {
     final db = ref.read(databaseProvider);
-    final staffs = await db.getAllStaffs();
+    List<Map<String, dynamic>> staffs = await db.getAllStaffs();
     
-    for (var staff in staffs) {
-      if (staff['embedding'] != null) {
-        try {
-          var decoded = jsonDecode(staff['embedding']);
-          List<List<double>> parsedEmbeddings = [];
-          if (decoded is List && decoded.isNotEmpty) {
-            if (decoded[0] is List) {
-              for (var emb in decoded) {
-                parsedEmbeddings.add(List<double>.from(emb.map((e) => e.toDouble())));
-              }
-            } else {
-              parsedEmbeddings.add(List<double>.from(decoded.map((e) => e.toDouble())));
-            }
-          }
-          staff['parsed_embeddings'] = parsedEmbeddings;
-        } catch (e) {
-          staff['parsed_embeddings'] = <List<double>>[];
-        }
-      } else {
-        staff['parsed_embeddings'] = <List<double>>[];
-      }
-    }
+    // Run parsing in isolate to completely free up main UI thread
+    final parsedStaffs = await compute(_parseEmbeddingsInIsolate, staffs);
     
     if (mounted) {
       setState(() {
@@ -158,6 +152,19 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
   }
 
   Future<void> _initializeCamera() async {
+    if (cameras.isEmpty) {
+      try {
+        cameras = await availableCameras();
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _statusText = "Error getting cameras: $e";
+          });
+        }
+        return;
+      }
+    }
+    
     if (cameras.isEmpty) return;
 
     CameraDescription? frontCamera;
@@ -179,7 +186,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
 
     _controller = CameraController(
       frontCamera, 
-      ResolutionPreset.low, 
+      ResolutionPreset.medium, 
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
     );
@@ -253,7 +260,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
         final bytes = allBytes.done().buffer.asUint8List();
 
         final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
-        final InputImageRotation imageRotation = InputImageRotationValue.fromRawValue(cameras[1].sensorOrientation) ?? InputImageRotation.rotation270deg;
+        final InputImageRotation imageRotation = InputImageRotationValue.fromRawValue(_controller!.description.sensorOrientation) ?? InputImageRotation.rotation270deg;
         final InputImageFormat inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21;
         
         final inputImageData = InputImageMetadata(
@@ -330,7 +337,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
         yuvBytes: bytes,
         previewWidth: width,
         previewHeight: height,
-        orientation: cameras[1].sensorOrientation,
+        orientation: _controller!.description.sensorOrientation,
         faceContour: face.boundingBox,
       );
 
@@ -346,11 +353,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
       }
       */
 
-      final embedding = await MLService().getEmbeddingFromStream(bytes, width, height, face, cameras[1].sensorOrientation);
+      if (!_embeddingsLoaded || _cachedStaffs.isEmpty) {
+        setState(() { _statusText = "No staff registered. Please register first."; });
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) {
+          setState(() { _challengePassed = false; _livenessStep = 0; });
+          _isProcessing = false;
+        }
+        return;
+      }
+
+      final embedding = await MLService().getEmbeddingFromStream(bytes, width, height, face, _controller!.description.sensorOrientation);
       if (embedding == null) throw Exception("Failed to extract features.");
       
       final db = ref.read(databaseProvider);
-      if (!_embeddingsLoaded) return;
       
       if (_mismatchCorrectionRegNo != null) {
         // OVERRIDE LOGIC: Verify the face against the selected PIN's database embedding
@@ -900,7 +916,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
     }
     
     if (cameras.isNotEmpty && cameras.length > 1) {
-      imgData = img.copyRotate(imgData, angle: cameras[1].sensorOrientation);
+      imgData = img.copyRotate(imgData, angle: _controller!.description.sensorOrientation);
     }
     return imgData;
   }
@@ -973,10 +989,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen> with WidgetsBindi
                         children: [
                           Image.asset('assets/St-Marys-school-logo.webp', height: 50, width: 50, fit: BoxFit.contain),
                           const SizedBox(width: 8),
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              "St.Mary's School Attendance", 
-                              style: TextStyle(
+                              _institutionName, 
+                              style: const TextStyle(
                                 color: AppTheme.accentCyan, 
                                 fontSize: 18, 
                                 fontWeight: FontWeight.w800,
@@ -1249,4 +1265,31 @@ class FaceBoundingBoxPainter extends CustomPainter {
   bool shouldRepaint(covariant FaceBoundingBoxPainter oldDelegate) {
     return oldDelegate.faceRect != faceRect || oldDelegate.color != color || oldDelegate.isProcessing != isProcessing;
   }
+}
+
+// Top-level function for isolate parsing
+List<Map<String, dynamic>> _parseEmbeddingsInIsolate(List<Map<String, dynamic>> staffs) {
+  for (var staff in staffs) {
+    if (staff['embedding'] != null && staff['embedding'].toString().isNotEmpty) {
+      try {
+        var decoded = jsonDecode(staff['embedding']);
+        List<List<double>> parsedEmbeddings = [];
+        if (decoded is List && decoded.isNotEmpty) {
+          if (decoded[0] is List) {
+            for (var emb in decoded) {
+              parsedEmbeddings.add(List<double>.from(emb.map((e) => (e as num).toDouble())));
+            }
+          } else {
+            parsedEmbeddings.add(List<double>.from(decoded.map((e) => (e as num).toDouble())));
+          }
+        }
+        staff['parsed_embeddings'] = parsedEmbeddings;
+      } catch (e) {
+        staff['parsed_embeddings'] = <List<double>>[];
+      }
+    } else {
+      staff['parsed_embeddings'] = <List<double>>[];
+    }
+  }
+  return staffs;
 }

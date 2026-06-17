@@ -30,9 +30,9 @@ class AdminSettingsScreen extends ConsumerWidget {
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.cardColor,
         title: Text(title, style: const TextStyle(color: Colors.redAccent)),
-        content: Text(content, style: const TextStyle(color: Colors.white)),
+        content: Text(content, style: TextStyle(color: AppTheme.textPrimary)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("Cancel", style: TextStyle(color: AppTheme.textSecondary))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
@@ -40,7 +40,7 @@ class AdminSettingsScreen extends ConsumerWidget {
               onConfirm();
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$title Completed!"), backgroundColor: AppTheme.accentEmerald));
             },
-            child: const Text("Confirm Delete", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: const Text("Confirm Delete", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -59,6 +59,9 @@ class AdminSettingsScreen extends ConsumerWidget {
     );
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final String instName = prefs.getString('institution_name') ?? 'Your Institution';
+      
       final allStaff = await db.getAllStaffs();
       final todayAttendance = await db.getAttendanceByDate(today);
       
@@ -71,7 +74,8 @@ class AdminSettingsScreen extends ConsumerWidget {
           String phone = staff['mobile_no'] ?? '';
           if (phone.isNotEmpty) {
             String name = staff['name'] ?? 'Employee';
-            await SimSmsService.sendSms(phone, "St.Mary's Matriculation Higher Secondary School Chinna Udayamuthur, Tirupattur\n\nDear $name, you have been marked ABSENT for today ($today).");
+            String message = "$instName\n\nDear $name, you have been marked ABSENT for today ($today).";
+            await SimSmsService.sendSms(phone, message);
             sentCount++;
           }
         }
@@ -102,11 +106,15 @@ class AdminSettingsScreen extends ConsumerWidget {
       builder: (context) => const Center(child: CircularProgressIndicator()),
     );
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final String instName = prefs.getString('institution_name') ?? 'Your Institution';
+      
       final db = ref.read(databaseProvider);
       final staffs = await db.getAllStaffs();
       final String jsonStr = jsonEncode({'staff_backup': staffs, 'timestamp': DateTime.now().toIso8601String()});
       final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/st_marys_backup_${DateTime.now().millisecondsSinceEpoch}.json');
+      final instCode = prefs.getString('institution_code') ?? 'backup';
+      final file = File('${directory.path}/${instCode}_backup_${DateTime.now().millisecondsSinceEpoch}.json');
       await file.writeAsString(jsonStr);
       
       if (context.mounted) {
@@ -131,12 +139,15 @@ class AdminSettingsScreen extends ConsumerWidget {
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.cardColor,
         title: const Text("Sending Daily Summary", style: TextStyle(color: Colors.orangeAccent)),
-        content: const Text("Sending SMS slowly (1 per minute) to avoid Android security blocks.\n\nPlease DO NOT close this app or lock your screen until it finishes.", style: TextStyle(color: Colors.white)),
+        content: const Text("Sending SMS slowly (1 per minute) to avoid Android security blocks.\n\nPlease DO NOT close this app or lock your screen until it finishes.", style: TextStyle(color: AppTheme.textPrimary)),
         contentPadding: const EdgeInsets.all(20),
       ),
     );
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final String instName = prefs.getString('institution_name') ?? 'Your Institution';
+      
       final allStaff = await db.getAllStaffs();
       final todayAttendance = await db.getAttendanceByDate(today);
       
@@ -163,7 +174,7 @@ class AdminSettingsScreen extends ConsumerWidget {
              if (outTime.isEmpty) outTime = "Not scanned";
           }
           
-          String message = "St.Mary's Matriculation Higher Secondary School Chinna Udayamuthur, Tirupattur\n\nDear $name, Attendance for $today:\nMorning In: $inTime\nEvening Out: $outTime";
+          String message = "$instName\n\nDear $name, Attendance for $today:\nMorning In: $inTime\nEvening Out: $outTime";
           
           await SimSmsService.sendSms(phone, message);
           sentCount++;
@@ -202,6 +213,9 @@ class AdminSettingsScreen extends ConsumerWidget {
     );
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final String instName = prefs.getString('institution_name') ?? 'Your Institution';
+
       final allStaff = await db.getAllStaffs();
       final todayAttendance = await db.getAttendanceByDate(today);
 
@@ -262,7 +276,7 @@ Late Entry: $lateNonTeaching
 
 Regards,
 Attendance System
-St.Mary's Matriculation Higher Secondary School
+$instName
 ''';
 
       final Uri emailLaunchUri = Uri(
@@ -295,7 +309,7 @@ St.Mary's Matriculation Higher Secondary School
         title: const Text("Broadcast SMS", style: TextStyle(color: Colors.orangeAccent)),
         content: TextField(
           controller: msgCtrl,
-          style: const TextStyle(color: Colors.white),
+          style: TextStyle(color: AppTheme.textPrimary),
           maxLines: 3,
           decoration: const InputDecoration(hintText: "Enter message to send to ALL staff...", hintStyle: TextStyle(color: Colors.white54)),
         ),
@@ -358,13 +372,12 @@ St.Mary's Matriculation Higher Secondary School
         children: [
           const Text("Database Management", style: TextStyle(color: AppTheme.accentCyan, fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
-          /*
           ListTile(
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.cloud_download, color: Colors.blueAccent),
-            title: const Text("Sync Data from Firebase", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("One-time sync to download all staff to local DB", style: TextStyle(color: Colors.white54)),
+            title: const Text("Sync Data from Firebase", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("One-time sync to download all staff to local DB", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.sync, color: Colors.blueAccent),
             onTap: () async {
               showDialog(
@@ -387,12 +400,11 @@ St.Mary's Matriculation Higher Secondary School
               }
             },
           ),
-          */
           ListTile(
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.download, color: AppTheme.accentCyan),
-            title: const Text("Export Database Backup", style: TextStyle(color: Colors.white)),
+            title: const Text("Export Database Backup", style: TextStyle(color: AppTheme.textPrimary)),
             onTap: () {
                _exportDatabase(context, ref);
             },
@@ -402,8 +414,8 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.history, color: Colors.orangeAccent),
-            title: const Text("Clear Attendance History", style: TextStyle(color: Colors.white)),
-            subtitle: const Text("Deletes all daily attendance logs", style: TextStyle(color: Colors.white54)),
+            title: const Text("Clear Attendance History", style: TextStyle(color: AppTheme.textPrimary)),
+            subtitle: const Text("Deletes all daily attendance logs", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.delete_outline, color: Colors.redAccent),
             onTap: () => _confirmWipe(context, "Clear History", "Are you sure you want to delete all attendance logs? Employee registrations will be kept.", () async {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cloud Wipes are disabled for safety. Contact SuperAdmin.")));
@@ -414,15 +426,11 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.people, color: AppTheme.accentEmerald),
-            title: const Text("Manage Employees", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Edit or delete individual employee data", style: TextStyle(color: Colors.white54)),
+            title: const Text("Manage Employees", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Edit or delete individual employee data", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.arrow_forward_ios, color: AppTheme.accentEmerald, size: 16),
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => AdminAuthScreen(
-                onAuthenticated: () {
-                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const EmployeeManagementScreen()));
-                },
-              )));
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()));
             },
           ),
           const SizedBox(height: 10),
@@ -430,8 +438,8 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.sms_failed, color: Colors.orangeAccent),
-            title: const Text("Notify Absentees (SMS)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Send 'Absent' SMS to all employees not scanned today", style: TextStyle(color: Colors.white54)),
+            title: const Text("Notify Absentees (SMS)", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Send 'Absent' SMS to all employees not scanned today", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.send, color: Colors.orangeAccent, size: 16),
             onTap: () {
                _notifyAbsentees(context, ref);
@@ -442,8 +450,8 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.podcasts, color: Colors.orangeAccent),
-            title: const Text("Broadcast / Schedule SMS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Send a custom SMS to all registered employees", style: TextStyle(color: Colors.white54)),
+            title: const Text("Broadcast / Schedule SMS", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Send a custom SMS to all registered employees", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.send, color: Colors.orangeAccent, size: 16),
             onTap: () {
                _broadcastSms(context, ref);
@@ -454,15 +462,11 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.email, color: AppTheme.accentCyan),
-            title: const Text("Email Configuration", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Set sender, receivers, and BCC emails", style: TextStyle(color: Colors.white54)),
+            title: const Text("Email Configuration", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Set sender, receivers, and BCC emails", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.arrow_forward_ios, color: AppTheme.accentCyan, size: 16),
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => SuperAdminAuthScreen(
-                onAuthenticated: () {
-                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const EmailConfigScreen()));
-                },
-              )));
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const EmailConfigScreen()));
             },
           ),
           const SizedBox(height: 10),
@@ -470,15 +474,11 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.security, color: Colors.orangeAccent),
-            title: const Text("Change SuperAdmin PIN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Set a new password for SuperAdmin features", style: TextStyle(color: Colors.white54)),
+            title: const Text("Change SuperAdmin PIN", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Set a new password for SuperAdmin features", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.arrow_forward_ios, color: Colors.orangeAccent, size: 16),
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => SuperAdminAuthScreen(
-                onAuthenticated: () {
-                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ChangeSuperAdminPinScreen()));
-                },
-              )));
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const ChangeSuperAdminPinScreen()));
             },
           ),
           const SizedBox(height: 10),
@@ -486,15 +486,11 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.monitor_heart, color: Colors.pinkAccent),
-            title: const Text("Live Health & Monitoring Hub", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Track tablet health and all admin activity logs in real-time", style: TextStyle(color: Colors.white54)),
+            title: const Text("Live Health & Monitoring Hub", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Track tablet health and all admin activity logs in real-time", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.arrow_forward_ios, color: Colors.pinkAccent, size: 16),
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => SuperAdminAuthScreen(
-                onAuthenticated: () {
-                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LiveMonitoringScreen()));
-                },
-              )));
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const LiveMonitoringScreen()));
             },
           ),
           const SizedBox(height: 10),
@@ -502,8 +498,8 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.schedule_send, color: AppTheme.accentEmerald),
-            title: const Text("Send Daily Summary SMS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Send consolidated IN/OUT times (1 message per minute)", style: TextStyle(color: Colors.white54)),
+            title: const Text("Send Daily Summary SMS", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Send consolidated IN/OUT times (1 message per minute)", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.send, color: AppTheme.accentEmerald, size: 16),
             onTap: () {
                _sendDailySummarySms(context, ref);
@@ -514,8 +510,8 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.email, color: Colors.blueAccent),
-            title: const Text("Send Principal Email Report", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Generate and email the daily attendance status report", style: TextStyle(color: Colors.white54)),
+            title: const Text("Send Principal Email Report", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Generate and email the daily attendance status report", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.arrow_forward_ios, color: Colors.blueAccent, size: 16),
             onTap: () {
                _sendPrincipalEmailReport(context, ref);
@@ -527,7 +523,7 @@ St.Mary's Matriculation Higher Secondary School
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.people_outline, color: Colors.redAccent),
             title: const Text("Delete All Registered Employees", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Wipes all FaceID data", style: TextStyle(color: Colors.white54)),
+            subtitle: const Text("Wipes all FaceID data", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.warning, color: Colors.redAccent),
             onTap: () => _confirmWipe(context, "Delete All Employees", "WARNING: This will permanently delete all employee FaceID data.", () async {
               final db = ref.read(databaseProvider);
@@ -539,8 +535,8 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.image, color: Colors.blueAccent),
-            title: const Text("View Mismatch Images", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("View, share, or delete captured mismatch photos", style: TextStyle(color: Colors.white54)),
+            title: const Text("View Mismatch Images", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("View, share, or delete captured mismatch photos", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.arrow_forward_ios, color: Colors.blueAccent, size: 16),
             onTap: () {
               Navigator.push(context, MaterialPageRoute(builder: (context) => const staff_attendance_app_mismatch.MismatchImagesScreen()));
@@ -553,8 +549,8 @@ St.Mary's Matriculation Higher Secondary School
             tileColor: AppTheme.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             leading: const Icon(Icons.password, color: AppTheme.accentCyan),
-            title: const Text("Change Admin PIN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: const Text("Update the 4-digit PIN for admin access", style: TextStyle(color: Colors.white54)),
+            title: const Text("Change Admin PIN", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            subtitle: const Text("Update the 4-digit PIN for admin access", style: TextStyle(color: AppTheme.textSecondary)),
             trailing: const Icon(Icons.arrow_forward_ios, color: AppTheme.accentCyan, size: 16),
             onTap: () {
               _showChangePinDialog(context);
@@ -567,7 +563,7 @@ St.Mary's Matriculation Higher Secondary School
             padding: EdgeInsets.symmetric(horizontal: 8.0),
             child: Text(
               "For best results, employees should stand exactly 0.5 to 1.0 meters (1.5 to 3 feet) from the camera. If the system is struggling to recognize someone, ask them to step slightly closer so the AI can capture more facial details. Ensure there is good lighting on the face.",
-              style: TextStyle(color: Colors.white70, height: 1.5),
+              style: TextStyle(color: AppTheme.textSecondary, height: 1.5),
             ),
           ),
         ],
@@ -590,7 +586,7 @@ St.Mary's Matriculation Higher Secondary School
           controller: pinCtrl,
           keyboardType: TextInputType.number,
           maxLength: 4,
-          style: const TextStyle(color: Colors.white, fontSize: 24, letterSpacing: 8),
+          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 24, letterSpacing: 8),
           textAlign: TextAlign.center,
           decoration: const InputDecoration(
             hintText: "Enter 4-digit PIN",
@@ -601,7 +597,7 @@ St.Mary's Matriculation Higher Secondary School
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: AppTheme.textSecondary))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentEmerald),
             onPressed: () async {
@@ -610,13 +606,13 @@ St.Mary's Matriculation Higher Secondary School
                 await prefs.setString('admin_pin', pinCtrl.text);
                 if (context.mounted) {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Admin PIN Updated Successfully!", style: TextStyle(color: Colors.white)), backgroundColor: AppTheme.accentEmerald));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Admin PIN Updated Successfully!", style: TextStyle(color: AppTheme.textPrimary)), backgroundColor: AppTheme.accentEmerald));
                 }
               } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PIN must be exactly 4 digits", style: TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PIN must be exactly 4 digits", style: TextStyle(color: AppTheme.textPrimary)), backgroundColor: Colors.redAccent));
               }
             },
-            child: const Text("Save PIN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: const Text("Save PIN", style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

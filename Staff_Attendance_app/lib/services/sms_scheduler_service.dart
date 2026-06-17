@@ -62,6 +62,8 @@ class SmsSchedulerService {
     for (var a in todayAttendance) {
       attendanceMap[a['register_no'] as String] = a;
     }
+    final prefs = await SharedPreferences.getInstance();
+    final String instName = prefs.getString('institution_name') ?? 'Your Institution';
     
     for (var staff in allStaff) {
       String phone = staff['mobile_no'] ?? '';
@@ -80,7 +82,7 @@ class SmsSchedulerService {
            if (outTime.isEmpty) outTime = "Not scanned";
         }
         
-        String message = "St.Mary's Matriculation Higher Secondary School Chinna Udayamuthur, Tirupattur\\n\\nDear $name, Attendance for $today:\\nMorning In: $inTime\\nEvening Out: $outTime";
+        String message = "$instName\n\nDear $name, Attendance for $today:\nMorning In: $inTime\nEvening Out: $outTime";
         
         await SimSmsService.sendSms(phone, message);
         

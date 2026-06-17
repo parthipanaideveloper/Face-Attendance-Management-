@@ -80,6 +80,7 @@ flutter:
   assets:
     - assets/logo.png
     - assets/tech_logo.png
+    - assets/auth_logo.png
     - assets/St-Marys-school-logo.webp
     - assets/mobilefacenet.tflite
   # To add assets to your application, add an assets section, like this:

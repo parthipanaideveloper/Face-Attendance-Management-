@@ -28,12 +28,27 @@ class _MismatchImagesScreenState extends State<MismatchImagesScreen> {
       final folder = Directory(folderPath);
       
       if (await folder.exists()) {
-        final files = folder.listSync().whereType<File>().where((file) => file.path.endsWith('.jpg')).toList();
+        final List<File> files = [];
+        await for (var entity in folder.list(recursive: false, followLinks: false)) {
+          if (entity is File && entity.path.endsWith('.jpg')) {
+            files.add(entity);
+          }
+        }
+        
+        // Cache last modified times to avoid multiple async reads during sort
+        final Map<String, DateTime> modTimes = {};
+        for (var file in files) {
+          modTimes[file.path] = await file.lastModified();
+        }
+        
         // Sort by newest first
-        files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
-        setState(() {
-          _images = files;
-        });
+        files.sort((a, b) => modTimes[b.path]!.compareTo(modTimes[a.path]!));
+        
+        if (mounted) {
+          setState(() {
+            _images = files;
+          });
+        }
       }
     } catch (e) {
       print("Error loading images: $e");

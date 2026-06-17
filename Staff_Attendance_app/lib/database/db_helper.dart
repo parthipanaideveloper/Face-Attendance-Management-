@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
@@ -7,7 +8,21 @@ import 'package:staff_attendance_app/services/sim_sms_service.dart';
 import 'package:staff_attendance_app/services/email_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+
 class DatabaseHelper {
+
+
+  Future<String> get institutionCode async {
+    final prefs = await SharedPreferences.getInstance();
+    // Use a legacy code to ensure backwards compatibility for existing single-user data
+    return prefs.getString('institution_code') ?? 'LEGACY-000000';
+  }
+
+  Future<DocumentReference> get institutionDoc async {
+    String code = await institutionCode;
+    return (await institutionDoc).collection('institutions').doc(code);
+  }
+
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   factory DatabaseHelper() => _instance;
   DatabaseHelper._internal();
@@ -24,15 +39,22 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'attendance_system.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await _createTables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
-        await db.execute('DROP TABLE IF EXISTS students');
-        await db.execute('DROP TABLE IF EXISTS attendance');
-        await db.execute('DROP TABLE IF EXISTS schedules');
-        await _createTables(db);
+        if (oldVersion < 3) {
+          try {
+            await db.execute('ALTER TABLE students ADD COLUMN is_synced INTEGER DEFAULT 0');
+            await db.execute('ALTER TABLE schedules ADD COLUMN is_synced INTEGER DEFAULT 0');
+          } catch (e) {}
+        } else {
+          await db.execute('DROP TABLE IF EXISTS students');
+          await db.execute('DROP TABLE IF EXISTS attendance');
+          await db.execute('DROP TABLE IF EXISTS schedules');
+          await _createTables(db);
+        }
       }
     );
   }
@@ -41,7 +63,8 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE students (
         register_no TEXT PRIMARY KEY,
-        data TEXT
+        data TEXT,
+        is_synced INTEGER DEFAULT 0
       )
     ''');
     await db.execute('''
@@ -58,28 +81,31 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE schedules (
         date TEXT PRIMARY KEY,
-        type TEXT
+        type TEXT,
+        is_synced INTEGER DEFAULT 0
       )
     ''');
   }
 
   Future<void> syncFromFirebase() async {
     final db = await database;
-    FirebaseFirestore firestore = FirebaseFirestore.instance;
+    final instDoc = await institutionDoc;
 
-    QuerySnapshot studentsSnap = await firestore.collection('students').get();
+    var batch = db.batch();
+
+    QuerySnapshot studentsSnap = await instDoc.collection('students').get();
     for (var doc in studentsSnap.docs) {
-      await db.insert('students', {
+      batch.insert('students', {
         'register_no': doc.id,
         'data': jsonEncode(doc.data())
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
 
-    QuerySnapshot attSnap = await firestore.collection('attendance').get();
-    await db.delete('attendance');
+    QuerySnapshot attSnap = await instDoc.collection('attendance').get();
+    batch.delete('attendance');
     for (var doc in attSnap.docs) {
       var data = doc.data() as Map<String, dynamic>;
-      await db.insert('attendance', {
+      batch.insert('attendance', {
         'register_no': data['register_no'],
         'date': data['date'],
         'in_time': data['in_time'],
@@ -88,14 +114,16 @@ class DatabaseHelper {
       });
     }
 
-    QuerySnapshot schSnap = await firestore.collection('schedules').get();
+    QuerySnapshot schSnap = await instDoc.collection('schedules').get();
     for (var doc in schSnap.docs) {
       var data = doc.data() as Map<String, dynamic>;
-      await db.insert('schedules', {
+      batch.insert('schedules', {
         'date': doc.id,
         'type': data['type']
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
+
+    await batch.commit(noResult: true);
   }
 
   Future<void> insertStaff(Map<String, dynamic> staff) async {
@@ -107,14 +135,17 @@ class DatabaseHelper {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
 
     try {
-      await FirebaseFirestore.instance.collection('students').doc(registerNo).set(staff, SetOptions(merge: true));
+      await (await institutionDoc).collection('students').doc(registerNo).set(staff, SetOptions(merge: true));
     } catch(e) {}
   }
 
   Future<List<Map<String, dynamic>>> getAllStaffs() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('students');
-    return maps.map((e) => jsonDecode(e['data'] as String) as Map<String, dynamic>).toList();
+    final maps = await db.query('students');
+    if (maps.isEmpty) return [];
+    
+    // Isolate decoding to prevent UI freezing
+    return await compute(_decodeStaffsList, maps);
   }
 
   Future<Map<String, dynamic>?> getStaffByRegisterNo(String registerNo) async {
@@ -138,7 +169,7 @@ class DatabaseHelper {
     await db.update('students', {'data': jsonEncode(staff)}, where: 'register_no = ?', whereArgs: [registerNo]);
 
     try {
-      await FirebaseFirestore.instance.collection('students').doc(registerNo).set(staff, SetOptions(merge: true));
+      await (await institutionDoc).collection('students').doc(registerNo).set(staff, SetOptions(merge: true));
     } catch(e) {}
   }
 
@@ -147,7 +178,7 @@ class DatabaseHelper {
     await db.delete('students', where: 'register_no = ?', whereArgs: [registerNo]);
 
     try {
-      await FirebaseFirestore.instance.collection('students').doc(registerNo).delete();
+      await (await institutionDoc).collection('students').doc(registerNo).delete();
     } catch(e) {}
   }
 
@@ -194,7 +225,7 @@ class DatabaseHelper {
       });
 
       try {
-        FirebaseFirestore.instance.collection('attendance').doc('$today-$registerNo').set({
+        (await institutionDoc).collection('attendance').doc('$today-$registerNo').set({
           'register_no': registerNo,
           'date': today,
           'in_time': nowTime,
@@ -229,7 +260,7 @@ class DatabaseHelper {
       await db.update('attendance', {'out_time': nowTime, 'is_synced': 0}, where: 'id = ?', whereArgs: [id]);
 
       try {
-        FirebaseFirestore.instance.collection('attendance').doc('$today-$registerNo').set({
+        (await institutionDoc).collection('attendance').doc('$today-$registerNo').set({
           'out_time': nowTime,
         }, SetOptions(merge: true));
       } catch(e) {}
@@ -533,4 +564,13 @@ class DatabaseHelper {
     }
     return absentStaffs;
   }
+}
+
+// Top-level function for isolate
+List<Map<String, dynamic>> _decodeStaffsList(List<Map<String, Object?>> maps) {
+  List<Map<String, dynamic>> results = [];
+  for (var map in maps) {
+    results.add(jsonDecode(map['data'] as String) as Map<String, dynamic>);
+  }
+  return results;
 }

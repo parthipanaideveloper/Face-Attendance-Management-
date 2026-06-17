@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:staff_attendance_app/features/admin/providers/dashboard_provider.dart';
 import 'package:staff_attendance_app/features/admin/admin_settings_screen.dart';
@@ -362,7 +363,9 @@ class DashboardScreen extends ConsumerWidget {
                          String phone = existing['mobile_no'] ?? '';
                          String name = existing['name'] ?? 'Staff';
                          if (phone.length >= 10) {
-                           await SimSmsService.sendSms(phone, "St.Mary's Matriculation Higher Secondary School Chinna Udayamuthur, Tirupattur\n\nDear $name, you have been assigned to Special Class $_selectedClass at $timeStr.");
+                           final prefs = await SharedPreferences.getInstance();
+                           final instName = prefs.getString('institution_name') ?? 'Your Institution';
+                           await SimSmsService.sendSms(phone, "$instName\n\nDear $name, you have been assigned to Special Class $_selectedClass at $timeStr.");
                          }
                          
                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Class assigned successfully!"), backgroundColor: AppTheme.accentEmerald));
@@ -560,25 +563,11 @@ class DashboardScreen extends ConsumerWidget {
                       });
                     }).animate().fadeIn(delay: 500.ms).scale(),
                     _buildMenuCard("Employee Directory", Icons.badge, Colors.blueAccent, () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => AdminAuthScreen(
-                        onAuthenticated: () {
-                          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const EmployeeManagementScreen()));
-                        },
-                      )));
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeeManagementScreen()));
                     }).animate().fadeIn(delay: 550.ms).scale(),
-                    _buildMenuCard("Admin Settings", Icons.admin_panel_settings, Colors.purpleAccent, () async {
-                  final LocalAuthentication auth = LocalAuthentication();
-                  bool authenticated = false;
-                  try {
-                    authenticated = await auth.authenticate(
-                      localizedReason: 'Authenticate to access Admin Settings',
-                      options: const AuthenticationOptions(stickyAuth: true),
-                    );
-                  } catch (e) { print(e); }
-                  if (authenticated && context.mounted) {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminSettingsScreen()));
-                  }
-                }).animate().fadeIn(delay: 600.ms).scale(),
+                    _buildMenuCard("Admin Settings", Icons.admin_panel_settings, Colors.purpleAccent, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminSettingsScreen()));
+                    }).animate().fadeIn(delay: 600.ms).scale(),
                     _buildMenuCard("Zone Categories", Icons.map, Colors.indigoAccent, () {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const ZoneDashboardScreen()));
                     }).animate().fadeIn(delay: 625.ms).scale(),
@@ -592,11 +581,7 @@ class DashboardScreen extends ConsumerWidget {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScheduleScreen()));
                     }).animate().fadeIn(delay: 675.ms).scale(),
                     _buildMenuCard("Manage LOP & Salary", Icons.currency_rupee, Colors.deepPurpleAccent, () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => AdminAuthScreen(
-                        onAuthenticated: () {
-                          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LopManagementScreen()));
-                        },
-                      )));
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const LopManagementScreen()));
                     }).animate().fadeIn(delay: 700.ms).scale(),
               ],
             );
